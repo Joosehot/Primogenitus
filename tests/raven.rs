@@ -49,6 +49,31 @@ fn a_humane_conversation() {
     // thanks and goodbye
     let r = talk("Thanks for listening");
     assert!(r.contains("welcome") || r.contains("Any time"), "{r}");
+    // answers read in the light of the question asked
+    let mut raven2 = Raven::new(&net, &cfg).unwrap();
+    let g = raven2.greeting();
+    assert!(g.ends_with("What is your name?"), "{g}");
+    let r = raven2.reply("Joose").text;
+    println!("You: Joose\nPrimogenitus: {r}");
+    assert!(r.contains("Joose") && r.contains("meet"), "a bare name not read as a name: {r}");
+    let r = raven2.reply("I have a dog").text;
+    println!("You: I have a dog\nPrimogenitus: {r}");
+    let r2 = raven2.reply(if r.contains("name?") { "Rex" } else if r.contains("How old") { "3 years" } else { "very playful" }).text;
+    println!("Primogenitus: {r2}");
+    assert!(!r2.contains("did not"), "the answer to its own question not read: {r2}");
+    let r3 = raven2.reply("she is very friendly").text;
+    println!("You: she is very friendly\nPrimogenitus: {r3}");
+    assert!(!r3.contains("did not"), "\"she\" not read as the dog: {r3}");
+    // a story asked for is heard; "playful and friendly" stays about the dog
+    let r = raven2.reply("she is playful and friendly").text;
+    println!("You: she is playful and friendly\nPrimogenitus: {r}");
+    assert!(!r.to_lowercase().contains("friendlies"), "{r}");
+    let r = raven2.reply("My old dog died last year").text;
+    println!("You: My old dog died last year\nPrimogenitus: {r}");
+    assert!(r.contains("sorry") || r.contains("sad"), "{r}");
+    let r = raven2.reply("we used to walk together every morning").text;
+    println!("You: we used to walk together every morning\nPrimogenitus: {r}");
+    assert!(!r.contains("did not"), "a story not heard: {r}");
     let r = talk("bye");
     assert!(!r.contains('?'), "a question at goodbye: {r}");
 }

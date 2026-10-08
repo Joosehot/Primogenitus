@@ -17,14 +17,55 @@
 //!   NP is / are ADJ                          what they think
 //!   yes / no / maybe / I do not know         an answer
 //!   haha / lol, ok / cool, sorry             the small words
+//!   he / she / it / they is / was ADJ, died  about what they talked of last
+//!
+//! And in the light of what Raven asked last (Expect): after "what is your
+//! name?" a bare "Joose" is a name; after "how are you?" a bare "good" or
+//! "not bad" is a feeling; after "what is your cat's name?" a bare "Misu" is
+//! the cat's name; after "what was your dog like?" "very playful and
+//! friendly" describes the dog; after "how old is your cat?" "3 years" is its
+//! age. After an open question ("what happened?") a story Raven cannot read
+//! is heard, not refused.
 
 use crate::lexicon;
 use crate::network::{Form, Network, Pos};
 use crate::question::{self, Question};
 
+/// What Raven's last question waits for.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Expect {
+    Name,
+    Feeling,
+    PetName(u32),
+    Describe(u32),
+    Age(u32),
+    HaveIt(u32),
+    WantTalk,
+    /// an open question: whatever comes is a story to hear
+    Story,
+    /// "what would you like to talk about?"
+    Topic,
+}
+
+/// What the turn is read in the light of.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Context {
+    pub expect: Option<Expect>,
+    /// what "he", "she", "it", "they" are: the user's thing talked of last
+    pub referent: Option<u32>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Turn {
     Ask(Question),
+    /// "not bad": a feeling denied
+    FeelNot(u32),
+    /// the age of their thing, as said ("3 years")
+    Age { noun: u32, age: String },
+    /// a pet's name given right after Raven asked for it
+    PetNamed { noun: u32, name: String },
+    /// a story Raven asked for but cannot read: heard
+    Heard,
     Name(String),
     Feel(u32),
     Role(u32),
@@ -87,7 +128,16 @@ fn noun_at(net: &Network, w: &[String], i: usize, end: usize) -> Option<u32> {
     if i >= end {
         return None;
     }
-    let j = if matches!(w[i].as_str(), "a" | "an" | "the" | "some" | "my" | "two" | "three") { i + 1 } else { i };
+    let mut j = if matches!(w[i].as_str(), "a" | "an" | "the" | "some" | "my" | "two" | "three") { i + 1 } else { i };
+    // "my old dog": adjectives before the noun (the whole first, "hot dog" is a noun)
+    if net.lookup(&w[j..end].join(" ")).iter().all(|&q| net.node(q).pos != Pos::Noun) {
+        while j + 1 < end
+            && net.lookup(&w[j]).iter().any(|&q| net.node(q).pos == Pos::Adj)
+            && lexicon::closed(&w[j]).is_none()
+        {
+            j += 1;
+        }
+    }
     let text = w[j..end].join(" ");
     let mut readings: Vec<_> = net
         .lookup(&text)
@@ -122,14 +172,25 @@ fn is_name(orig: &str, low: &str, net: &Network) -> bool {
 }
 
 /// One clause, read whole.
-fn clause(net: &Network, w: &[String], o: &[String]) -> Option<Turn> {
+fn clause(net: &Network, w: &[String], o: &[String], cx: &Context) -> Option<Turn> {
     use Turn::*;
     let (mut a, mut b) = (0, w.len());
     while a < b && LEAD.contains(&w[a].as_str()) {
         a += 1;
     }
-    while b > a + 1 && (TAIL.contains(&w[b - 1].as_str()) || (w[b - 1] == "well" && b >= 2 && w[b - 2] == "as")) {
-        b -= if w[b - 1] == "well" { 2 } else { 1 };
+    loop {
+        if b > a + 1 && (TAIL.contains(&w[b - 1].as_str()) || matches!(w[b - 1].as_str(), "yesterday" | "recently")) {
+            b -= 1;
+        } else if b > a + 2 && w[b - 1] == "well" && w[b - 2] == "as" {
+            b -= 2;
+        } else if b > a + 2 && matches!(w[b - 2].as_str(), "last" | "this") && matches!(w[b - 1].as_str(), "week" | "month" | "year" | "night" | "morning" | "summer" | "winter" | "weekend") {
+            b -= 2;
+        } else if b > a + 2 && w[b - 1] == "ago" {
+            // "a while ago", "two years ago"
+            b -= if b > a + 3 && matches!(w[b - 3].as_str(), "a" | "an" | "two" | "three" | "few" | "many" | "some") { 3 } else { 2 };
+        } else {
+            break;
+        }
     }
     let (w, o) = (&w[a..b], &o[a..b]);
     let s: Vec<&str> = w.iter().map(|x| x.as_str()).collect();
@@ -247,6 +308,25 @@ fn clause(net: &Network, w: &[String], o: &[String]) -> Option<Turn> {
             }
         }
     }
+    // "she was very playful", "it is sick", "he died": what they talked of last
+    if let (Some(noun), true) = (cx.referent, matches!(s[0], "he" | "she" | "it" | "they")) {
+        if n >= 3 && matches!(s[1], "is" | "was" | "are" | "were") {
+            if let Some(adj) = adj_at(net, w, 2, n) {
+                return Some(MyIs { noun, adj });
+            }
+            if let Some(kind) = noun_at(net, w, 2, n) {
+                return Some(MyKind { noun, kind });
+            }
+        }
+        if n == 2 {
+            if let Some(event) = verb_any(net, s[1], &[Form::Past, Form::ThirdSg]) {
+                return Some(Happened { noun, event });
+            }
+        }
+        if s[1..] == ["passed", "away"] {
+            return verb_base(net, "die").map(|event| Happened { noun, event });
+        }
+    }
     // "dogs are cute"
     for e in (1..n).rev() {
         if matches!(s[e], "is" | "are") && lexicon::closed(&s[0]).is_none() {
@@ -258,8 +338,101 @@ fn clause(net: &Network, w: &[String], o: &[String]) -> Option<Turn> {
     None
 }
 
-/// The turn: its clauses read one by one, and whether all of them were read.
-pub fn read(net: &Network, text: &str) -> (Vec<Turn>, bool) {
+/// A bare answer to what Raven asked: a name, a feeling, a description, an age.
+fn answer(net: &Network, text: &str, cx: &Context) -> Option<Vec<Turn>> {
+    let (w, o) = words(text);
+    let mut a = 0;
+    while a < w.len() && LEAD.contains(&w[a].as_str()) {
+        a += 1;
+    }
+    // "fine, thanks", "good and you?"
+    let mut b = w.len();
+    while b > a && matches!(w[b - 1].as_str(), "thanks" | "thank" | "you" | "and" | "too" | "now" | "today" | "though") {
+        b -= 1;
+    }
+    let (w, o) = (&w[a..b], &o[a..b]);
+    let n = w.len();
+    if n == 0 {
+        return None;
+    }
+    let plain = |i: usize| w[i].chars().all(|c| c.is_alphabetic() || c == '-') && lexicon::closed(&w[i]).is_none()
+        && !matches!(w[i].as_str(), "yes" | "no" | "yeah" | "nope" | "ok" | "okay" | "hello" | "hi" | "hey" | "what" | "why" | "how");
+    // talking of an animal, "3 years" is its age even unasked
+    let expect = match (cx.expect, cx.referent) {
+        (None | Some(Expect::Story) | Some(Expect::Topic), Some(r)) if net.node(r).animate => Expect::Age(r),
+        (Some(e), _) => e,
+        (None, _) => return None,
+    };
+    match expect {
+        Expect::Name | Expect::PetName(_) => {
+            // "Joose", "Misu", "it is Misu"
+            let k = if w.starts_with(&["it".to_string(), "is".to_string()]) { 2 } else { 0 };
+            if (1..=2).contains(&(n - k)) && (k..n).all(plain) {
+                let name = o[k..].iter().map(|x| {
+                    let mut c = x.chars();
+                    c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
+                }).collect::<Vec<_>>().join(" ");
+                return Some(vec![match expect {
+                    Expect::PetName(noun) => Turn::PetNamed { noun, name },
+                    _ => Turn::Name(name),
+                }]);
+            }
+            None
+        }
+        Expect::Age(noun) | Expect::Describe(noun)
+            if n == 1 && net.node(noun).animate && o[0].chars().next().map(|c| c.is_uppercase()).unwrap_or(false) && net.lookup(&w[0]).is_empty() =>
+        {
+            Some(vec![Turn::PetNamed { noun, name: o[0].clone() }])
+        }
+        Expect::Feeling => {
+            // "good", "pretty good", "not bad", "a bit tired"
+            let not = w[0] == "not";
+            let k = usize::from(not);
+            adj_at(net, w, k, n).map(|adj| vec![if not { Turn::FeelNot(adj) } else { Turn::Feel(adj) }])
+        }
+        Expect::Describe(noun) => {
+            // "very playful and friendly", "she was old"
+            let k = if n >= 3 && matches!(w[0].as_str(), "he" | "she" | "it" | "they") && matches!(w[1].as_str(), "is" | "was" | "are" | "were") { 2 } else { 0 };
+            let mut out = Vec::new();
+            let mut start = k;
+            for i in k..=n {
+                if i == n || w[i] == "and" {
+                    out.push(Turn::MyIs { noun, adj: adj_at(net, w, start, i)? });
+                    start = i + 1;
+                }
+            }
+            Some(out)
+        }
+        Expect::Age(noun) => {
+            // "3", "three years", "2 years old", "six months"
+            const NUMS: &[&str] = &["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
+                                    "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty"];
+            let num = w[0].chars().all(|c| c.is_ascii_digit()) || NUMS.contains(&w[0].as_str());
+            let rest_ok = w[1..].iter().all(|x| matches!(x.as_str(), "year" | "years" | "month" | "months" | "week" | "weeks" | "old"));
+            (num && rest_ok).then(|| {
+                let unit = w.get(1).filter(|x| x.as_str() != "old").cloned().unwrap_or_else(|| "years".to_string());
+                vec![Turn::Age { noun, age: format!("{} {unit}", w[0]) }]
+            })
+        }
+        _ => None,
+    }
+}
+
+/// The turn: its clauses read one by one, in the light of what Raven asked
+/// last, and whether all of them were read.
+pub fn read(net: &Network, text: &str, cx: &Context) -> (Vec<Turn>, bool) {
+    if let Some(t) = answer(net, text, cx) {
+        return (t, true);
+    }
+    // a statement or a small word on its own ("yes" is also a noun to the question parser)
+    if !text.contains([',', ';']) {
+        let (w, o) = words(text);
+        if !w.iter().any(|x| matches!(x.as_str(), "and" | "but" | "because" | "since" | "though")) {
+            if let Some(t) = clause(net, &w, &o, cx) {
+                return (vec![t], true);
+            }
+        }
+    }
     let q = question::read(net, text);
     if !matches!(q, Question::Unknown(_)) {
         return (vec![Turn::Ask(q)], true);
@@ -275,7 +448,19 @@ pub fn read(net: &Network, text: &str) -> (Vec<Turn>, bool) {
             if i == low.len() || (cut(&low[i]) && i > start) {
                 let (w, o) = (&low[start..i], &orig[start..i]);
                 // a clause on its own may still be a question ("and what do dogs eat")
-                match clause(net, w, o) {
+                // "she is playful and friendly": a bare adjective goes on with the clause before
+                let more = match (out.last(), adj_at(net, w, 0, w.len())) {
+                    (Some(Turn::MyIs { noun, .. }), Some(adj)) => Some(Turn::MyIs { noun: *noun, adj }),
+                    (Some(Turn::Opinion { noun, .. }), Some(adj)) => Some(Turn::Opinion { noun: *noun, adj }),
+                    (Some(Turn::Feel(_)), Some(adj)) => Some(Turn::Feel(adj)),
+                    _ => None,
+                };
+                if let Some(t) = more {
+                    out.push(t);
+                    start = i + 1;
+                    continue;
+                }
+                match clause(net, w, o, cx) {
                     Some(t) => out.push(t),
                     None if !w.is_empty() => match question::read(net, &o.join(" ")) {
                         Question::Unknown(_) => all = false,
@@ -286,6 +471,12 @@ pub fn read(net: &Network, text: &str) -> (Vec<Turn>, bool) {
                 start = i + 1;
             }
         }
+    }
+    // a story Raven asked for is heard, even when it cannot be read
+    let personal = words(text).0.first().map(|w| matches!(w.as_str(), "i" | "we" | "my" | "our" | "he" | "she" | "it" | "they" | "his" | "her" | "their")).unwrap_or(false);
+    if !all && (cx.expect.is_some() || personal) {
+        out.push(Turn::Heard);
+        return (out, true);
     }
     (out, all)
 }
@@ -304,6 +495,8 @@ mod tests {
         let net = Network::load(&frozen).unwrap();
         let dog = net.base("dog", Pos::Noun).unwrap();
         let sad = net.base("sad", Pos::Adj).unwrap();
+        let no = Context::default();
+        let read = |net: &Network, t: &str| super::read(net, t, &no);
         assert_eq!(read(&net, "My name is Joose").0, vec![Turn::Name("Joose".into())]);
         assert_eq!(read(&net, "I'm Joose").0, vec![Turn::Name("Joose".into())]);
         assert_eq!(read(&net, "I am so sad").0, vec![Turn::Feel(sad)]);

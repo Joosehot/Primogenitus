@@ -138,7 +138,8 @@ feeling = "No. I have only words."
 # the bodies. Slots: {name} {noun} {a_noun} {nouns} {adj} {verb} {verbing}
 # {that} {what} {kinds}; a template whose slot has no word is not used.
 [raven.say]
-greeting = ["Hello. I am Primogenitus, Primo for short. What is your name?", "Hello.", "Hi there."]
+greeting = ["Hello. I am Primogenitus, Primo for short.", "Hello.", "Hi there."]
+q_ask_name = ["What is your name?"]
 goodbye = ["Goodbye. It was nice talking with you.", "Goodbye, {name}. Take care.", "Bye for now."]
 thanks = ["You are welcome.", "You are welcome, {name}.", "Any time."]
 nice_to_meet = ["Nice to meet you, {name}.", "Hello, {name}. It is good to meet you."]
@@ -170,6 +171,13 @@ pet_name = ["{pet} is a lovely name.", "{pet}, what a nice name."]
 pet_name_lost = ["{pet} is a lovely name. You must miss {pron}.", "You must miss {pet}."]
 q_pet = ["What is {pet} like?", "How old is {pet}?"]
 q_pet_lost = ["What do you remember most about {pet}?", "How long did you have {pet}?"]
+age = ["{age}, I see.", "{age} is a nice age for {a_noun}.", "So {pet} is {age} old."]
+heard = ["Thank you for telling me.", "I see. Thank you for sharing that with me.", "I am glad you told me."]
+listening = ["I am listening.", "Take your time. I am here."]
+no_talk = ["That is all right. I am here if you want to talk later.", "Of course. We can talk about something else."]
+q_tell = ["What happened?", "How are you feeling about it?"]
+q_good_plain = ["What have you been up to?", "Tell me more."]
+nice_trait = ["{pet} sounds lovely.", "Your {noun} sounds lovely.", "How lovely."]
 q_bad = ["Do you want to talk about it?", "What happened?", "Is there anything that would help?"]
 q_good = ["What made you feel {adj}?", "What happened?", "Tell me more."]
 q_loss = ["Do you want to tell me about your {noun}?", "What was your {noun} like?"]
@@ -207,7 +215,7 @@ jitter = 0.3                # the turn's tie-break, so equal replies vary
 # The feeling anchors: words that feel good or bad. Other words are read
 # through the network (similar, opposite, the feeling they name).
 [raven.feeling]
-good_adjectives = ["happy", "glad", "good", "great", "fine", "excited", "proud", "calm", "grateful", "cheerful", "well", "wonderful", "lucky", "relaxed", "healthy", "better", "content", "joyful", "pleased", "hopeful", "loved"]
+good_adjectives = ["happy", "glad", "good", "great", "fine", "excited", "proud", "calm", "grateful", "cheerful", "well", "wonderful", "lucky", "relaxed", "healthy", "better", "content", "joyful", "pleased", "hopeful", "loved", "playful", "friendly", "sweet", "cute", "lovely", "kind", "smart", "beautiful", "funny", "gentle", "loyal", "clever", "brave"]
 bad_adjectives = ["sad", "unhappy", "angry", "afraid", "scared", "anxious", "worried", "tired", "lonely", "bored", "sick", "ill", "depressed", "upset", "hurt", "bad", "awful", "terrible", "miserable", "stressed", "dead", "lost", "broken", "nervous", "frustrated", "exhausted", "sore"]
 good_nouns = ["happiness", "joy", "love", "pleasure", "hope", "pride", "calmness", "enthusiasm", "gratitude", "affection", "satisfaction", "excitement", "contentment"]
 bad_nouns = ["sadness", "unhappiness", "sorrow", "anger", "fear", "anxiety", "shame", "pain", "grief", "loneliness", "dislike", "boredom", "disgust", "despair", "worry", "jealousy", "frustration", "guilt"]

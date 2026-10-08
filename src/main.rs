@@ -66,6 +66,7 @@ fn main() -> Result<()> {
         // "ask" is Primo alone (one question, one fact); "chat" talks through Raven
         let mut chat = primogenitus::chat::Chat::new(&net, &cfg);
         let mut raven = primogenitus::raven::Raven::new(&net, &cfg)?;
+        let hello = raven.greeting();
         let is_ask = args[0] == "ask";
         let mut answer = |q: &str| {
             let t = Instant::now();
@@ -82,7 +83,7 @@ fn main() -> Result<()> {
             answer(&args[1..].join(" "));
             return Ok(());
         }
-        println!("Primogenitus: {}", cfg.raven.say["greeting"][0]);
+        println!("Primogenitus: {hello}");
         let stdin = std::io::stdin();
         let mut line = String::new();
         loop {
