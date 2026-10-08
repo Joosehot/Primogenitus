@@ -81,8 +81,10 @@ pub fn score(parts: &[&Part], ctx: &TurnCtx, hist: &History, w: &RavenJudges) ->
     }
     // keeps going, without interrogating
     let asks = parts.iter().filter(|p| p.question).count();
+    // (a gentle question about how they feel, while they are low, is support, not interrogation)
+    let gentle = ctx.low && parts.iter().any(|p| p.question && p.feel < 0.0);
     if asks == 1 {
-        if hist.asked.iter().rev().take(3).filter(|&&a| a).count() == 3 {
+        if hist.asked.iter().rev().take(3).filter(|&&a| a).count() == 3 && !gentle {
             s += w.interrogation;
         } else {
             s += w.keeps_going;
