@@ -16,6 +16,15 @@
 //!   is NP ADJ / are NP ADJ                   is it like that
 //!   does NP have NP / do NP have NP          does it have
 //!   does NP VERB [NP] / do / can             does it do
+//!   what does NP VERB / what can NP VERB     what it does that to   (what do dogs eat)
+//!   what VERBs [NP] / who VERBs [NP]         who does it            (what eats fish)
+//!   which NP VERB [NP] / what NP VERB [NP]   which kinds do it      (which animals swim)
+//!   which NP have NP / what NP have NP       which kinds have it    (what animals have wings)
+//!   what kind/type/sort of NP is NP          the kind on the way    (what kind of animal is a dog)
+//!   how ADJ is NP                            how it is, by the same measure (how big is a whale)
+//!   who is NP                                as "what is"
+//!   who are you / what is your name / how are you    about the bot
+//!   where / when / why / how ...             said plainly: no lines for places, times, reasons, ways
 //!
 //! NP is a noun phrase (a/an/the/some, a noun of one or more words, singular
 //! or plural) or a pronoun (it, they, them, one) for what was talked about.
@@ -50,6 +59,24 @@ pub enum Question {
     Ask { topic: Subject, intent: Intent, more: bool },
     /// "what else?" alone: the last question again, something not said yet
     More,
+    /// what does NP VERB: what it does that to
+    ObjectOf { topic: Subject, verb: u32 },
+    /// what VERBs [NP]: who or what does it
+    SubjectOf { verb: u32, obj: Option<u32> },
+    /// which NP VERB [NP]
+    WhichDo { kind: u32, verb: u32, obj: Option<u32> },
+    /// which NP have NP
+    WhichHave { kind: u32, part: u32 },
+    /// what kind of NP is NP
+    KindOf { kind: u32, topic: Subject },
+    /// how ADJ is NP
+    HowAdj { adj: u32, topic: Subject },
+    /// who are you, what is your name
+    WhoAreYou,
+    /// how are you
+    HowAreYou,
+    /// where, when, why, how ...: the word asked
+    Cannot(String),
     IsA { topic: Subject, kind: u32 },
     IsAdj { topic: Subject, adj: u32 },
     Has { topic: Subject, part: u32 },
@@ -59,10 +86,19 @@ pub enum Question {
 }
 
 fn words(text: &str) -> Vec<String> {
-    text.split(|c: char| c.is_whitespace() || ",.?!;:".contains(c))
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_lowercase())
-        .collect()
+    let mut out = Vec::new();
+    for w in text.split(|c: char| c.is_whitespace() || ",.?!;:".contains(c)).filter(|s| !s.is_empty()) {
+        let w = w.to_lowercase().replace('\u{2019}', "'");
+        // "what's" is "what is"
+        match w.strip_suffix("'s") {
+            Some(head) if matches!(head, "what" | "who" | "where" | "how" | "it" | "that") => {
+                out.push(head.to_string());
+                out.push("is".to_string());
+            }
+            _ => out.push(w),
+        }
+    }
+    out
 }
 
 /// Every noun phrase that starts at t[i], longest first: (subject, end).
@@ -85,12 +121,25 @@ fn nps(net: &Network, t: &[String], i: usize) -> Vec<(Subject, usize)> {
         if len == 1 && lexicon::closed(&text).is_some() {
             continue;
         }
-        let n = net
+        // a word may read two ways ("wings": the plural of "wing", or the pilot's
+        // badge); the reading whose number is sure comes first
+        let mut readings: Vec<&crate::network::Node> = net
             .lookup(&text)
             .iter()
             .map(|&q| net.node(q))
-            .find(|n| n.pos == Pos::Noun && !n.proper && matches!(n.form, Form::Base | Form::Plural));
-        if let Some(n) = n {
+            .filter(|n| n.pos == Pos::Noun && !n.proper && matches!(n.form, Form::Base | Form::Plural))
+            .collect();
+        // and the number the determiner asks for: none, a plural ("people" as
+        // persons); "a"/"an", one
+        let want = if j == i {
+            Some(Form::Plural)
+        } else if matches!(w.as_str(), "a" | "an") {
+            Some(Form::Base)
+        } else {
+            None
+        };
+        readings.sort_by_key(|n| (!(n.sure && net.node(n.lemma).sure), want.map(|f| n.form != f).unwrap_or(false), n.lemma));
+        if let Some(n) = readings.first() {
             out.push((Subject::Noun(n.lemma), j + len));
         }
     }
@@ -102,10 +151,14 @@ fn adjective(net: &Network, w: &str) -> Option<u32> {
 }
 
 fn verb(net: &Network, w: &str) -> Option<u32> {
+    verb_as(net, w, &[Form::Base])
+}
+
+fn verb_as(net: &Network, w: &str, forms: &[Form]) -> Option<u32> {
     if lexicon::closed(w).is_some() {
         return None;
     }
-    net.lookup(w).iter().map(|&q| net.node(q)).find(|n| n.pos == Pos::Verb && n.form == Form::Base).map(|n| n.lemma)
+    net.lookup(w).iter().map(|&q| net.node(q)).find(|n| n.pos == Pos::Verb && forms.contains(&n.form)).map(|n| n.lemma)
 }
 
 pub fn read(net: &Network, text: &str) -> Question {
@@ -120,6 +173,9 @@ pub fn read(net: &Network, text: &str) -> Question {
         ["thanks" | "thx"] | ["thank", "you"] | ["thanks", "a", "lot"] => return Thanks,
         ["help"] | ["what", "can", "you", "do"] | ["what", "can", "i", "ask"] | ["what", "can", "i", "ask", "you"] => return Help,
         ["what", "else"] | ["anything", "else"] | ["more"] | ["tell", "me", "more"] => return More,
+        ["who", "are", "you"] | ["what", "are", "you"] | ["what", "is", "your", "name"] | ["who", "is", "primo"]
+        | ["what", "is", "primo"] => return WhoAreYou,
+        ["how", "are", "you"] | ["how", "are", "you", "doing"] | ["how", "is", "it", "going"] => return HowAreYou,
         _ => {}
     }
     let n = t.len();
@@ -131,6 +187,58 @@ pub fn read(net: &Network, text: &str) -> Question {
         if s.starts_with(prefix) {
             if let Some(topic) = whole(prefix.len(), n) {
                 return Ask { topic, intent, more: false };
+            }
+        }
+    }
+    // "who is NP": what it is
+    if s.first() == Some(&"who") && matches!(s.get(1), Some(&"is") | Some(&"are")) {
+        if let Some(topic) = whole(2, n) {
+            return Ask { topic, intent: Intent::WhatIs, more: false };
+        }
+    }
+    // "how ADJ is NP"
+    if s.first() == Some(&"how") && n >= 4 && matches!(s[2], "is" | "are") {
+        if let (Some(adj), Some(topic)) = (adjective(net, &t[1]), whole(3, n)) {
+            return HowAdj { adj, topic };
+        }
+    }
+    // "what kind/type/sort of NP is NP"
+    if s.first() == Some(&"what") && matches!(s.get(1), Some(&"kind") | Some(&"type") | Some(&"sort")) && s.get(2) == Some(&"of") {
+        for (kind, e) in nps(net, &t, 3) {
+            if let (Subject::Noun(kind), Some(&"is") | Some(&"are")) = (kind, s.get(e)) {
+                if let Some(topic) = whole(e + 1, n) {
+                    return KindOf { kind, topic };
+                }
+            }
+        }
+    }
+    // "what/who VERBs [NP]": who or what does it
+    if matches!(s.first(), Some(&"what") | Some(&"who")) && n >= 2 {
+        if let Some(v) = verb_as(net, &t[1], &[Form::ThirdSg, Form::Past]) {
+            if n == 2 {
+                return SubjectOf { verb: v, obj: None };
+            }
+            if let Some(Subject::Noun(o)) = whole(2, n) {
+                return SubjectOf { verb: v, obj: Some(o) };
+            }
+        }
+    }
+    // "which/what NP VERB [NP]", "which/what NP have NP"
+    if matches!(s.first(), Some(&"which") | Some(&"what")) {
+        for (kind, e) in nps(net, &t, 1) {
+            let Subject::Noun(kind) = kind else { continue };
+            if matches!(s.get(e), Some(&"have") | Some(&"has")) {
+                if let Some(Subject::Noun(part)) = whole(e + 1, n) {
+                    return WhichHave { kind, part };
+                }
+            }
+            if let Some(v) = t.get(e).and_then(|w| verb_as(net, w, &[Form::Base, Form::ThirdSg, Form::Past])) {
+                if e + 1 == n {
+                    return WhichDo { kind, verb: v, obj: None };
+                }
+                if let Some(Subject::Noun(o)) = whole(e + 1, n) {
+                    return WhichDo { kind, verb: v, obj: Some(o) };
+                }
             }
         }
     }
@@ -159,6 +267,12 @@ pub fn read(net: &Network, text: &str) -> Question {
                         return Ask { topic, intent, more };
                     }
                 }
+                // "what do dogs eat": what it does that to
+                if let Some(v) = s.last().and_then(|w| verb(net, w)) {
+                    if let Some(topic) = whole(k + 1, n - 1) {
+                        return ObjectOf { topic, verb: v };
+                    }
+                }
             }
             _ => {}
         }
@@ -166,6 +280,11 @@ pub fn read(net: &Network, text: &str) -> Question {
     // "is/are NP NP", "is/are NP ADJ"
     if matches!(s.first(), Some(&"is") | Some(&"are")) {
         for (topic, e) in nps(net, &t, 1) {
+            if e + 1 == n {
+                if let Some(adj) = adjective(net, &t[e]) {
+                    return IsAdj { topic, adj };
+                }
+            }
             if let Some(Subject::Noun(kind)) = whole(e, n) {
                 return IsA { topic, kind };
             }
@@ -194,17 +313,26 @@ pub fn read(net: &Network, text: &str) -> Question {
             }
         }
     }
+    // where, when, why, how: no lines for these yet
+    if let Some(&w) = s.first() {
+        if matches!(w, "where" | "when" | "why" | "how") {
+            return Cannot(w.to_string());
+        }
+    }
     Unknown(why_not(net, &t))
 }
 
 /// Why a sentence was not understood: an unknown word, or a shape not read.
 fn why_not(net: &Network, t: &[String]) -> String {
     for w in t {
-        if lexicon::closed(w).is_none() && net.lookup(w).is_empty() && !matches!(w.as_str(), "what" | "else" | "tell" | "describe") {
+        if lexicon::closed(w).is_none()
+            && net.lookup(w).is_empty()
+            && !matches!(w.as_str(), "what" | "else" | "tell" | "describe" | "which" | "how" | "why" | "your")
+        {
             return format!("I do not know the word \"{w}\" (did you mean \"{}\"?).", parser::closest(net, w));
         }
     }
-    "I could not read the whole sentence. I read questions like: what is a dog, what does a dog do, what does a dog have, what is a dog like, is a dog an animal, does a dog have a tail, can dogs swim.".into()
+    "I could not read the whole sentence. I read questions like: what is a dog, what does a dog do, what do dogs eat, what eats fish, which animals swim, what kind of animal is a dog, how big is a whale, is a dog an animal, does a dog have a tail, can dogs swim.".into()
 }
 
 #[cfg(test)]

@@ -30,8 +30,8 @@ pub struct Chat<'a> {
     cfg: &'a Config,
     /// what was talked about last
     topic: Option<u32>,
-    /// the last open question, for "what else"
-    last: Option<(u32, Intent)>,
+    /// the last question, its topic resolved, for "what else"
+    last: Option<Question>,
     said: HashSet<Vec<u32>>,
     /// the (topic, question) pairs answered at least once
     answered: HashSet<(u32, Intent)>,
@@ -62,17 +62,65 @@ impl<'a> Chat<'a> {
     }
 
     pub fn reply(&mut self, input: &str) -> Reply {
+        let q = question::read(self.net, input);
+        if q == Question::More {
+            return match self.last.clone() {
+                Some(last) => self.answer(last),
+                None => Reply::plain(self.cfg.chat.nothing_yet.clone()),
+            };
+        }
+        self.answer(q)
+    }
+
+    fn answer(&mut self, q: Question) -> Reply {
         let c = &self.cfg.chat;
-        match question::read(self.net, input) {
+        // what "what else" asks again: the question, with "it" made what it meant
+        let fix = |s: Subject, topic: Option<u32>| match (s, topic) {
+            (Subject::Pronoun, Some(t)) => Subject::Noun(t),
+            (s, _) => s,
+        };
+        let again = match &q {
+            Question::Ask { topic, intent, more } => Some(Question::Ask { topic: fix(*topic, self.topic), intent: *intent, more: *more }),
+            Question::ObjectOf { topic, verb } => Some(Question::ObjectOf { topic: fix(*topic, self.topic), verb: *verb }),
+            Question::SubjectOf { .. } | Question::WhichDo { .. } | Question::WhichHave { .. } => Some(q.clone()),
+            _ => None,
+        };
+        if again.is_some() {
+            self.last = again;
+        }
+        match q {
             Question::Greeting => Reply::plain(c.greeting.clone()),
             Question::Goodbye => Reply::plain(c.goodbye.clone()),
             Question::Thanks => Reply::plain(c.thanks.clone()),
             Question::Help => Reply::plain(c.help.clone()),
             Question::Unknown(why) => Reply::plain(why),
-            Question::More => match self.last {
-                Some((topic, intent)) => self.ask(topic, intent),
-                None => Reply::plain(c.nothing_yet.clone()),
+            Question::WhoAreYou => Reply::plain(c.who_am_i.clone()),
+            Question::HowAreYou => Reply::plain(c.how_am_i.clone()),
+            Question::Cannot(w) => Reply::plain(c.cannot.replace("{word}", &w).replace(
+                "{what}",
+                match w.as_str() {
+                    "where" => "places",
+                    "when" => "times",
+                    "why" => "reasons",
+                    _ => "ways and amounts",
+                },
+            )),
+            Question::ObjectOf { topic, verb } => match self.resolve(topic) {
+                Ok(t) => self.object_of(t, verb),
+                Err(r) => r,
             },
+            Question::SubjectOf { verb, obj } => self.subject_of(verb, obj, None),
+            Question::WhichDo { kind, verb, obj } => self.subject_of(verb, obj, Some(kind)),
+            Question::WhichHave { kind, part } => self.which_have(kind, part),
+            Question::KindOf { kind, topic } => match self.resolve(topic) {
+                Ok(t) => self.kind_of(t, kind),
+                Err(r) => r,
+            },
+            Question::HowAdj { adj, topic } => match self.resolve(topic) {
+                Ok(t) => self.how_adj(t, adj),
+                Err(r) => r,
+            },
+            Question::More => Reply::plain(c.nothing_yet.clone()),
             Question::Ask { topic, intent, .. } => match self.resolve(topic) {
                 Ok(t) => self.ask(t, intent),
                 Err(r) => r,
@@ -127,7 +175,6 @@ impl<'a> Chat<'a> {
     }
 
     fn ask(&mut self, topic: u32, intent: Intent) -> Reply {
-        self.last = Some((topic, intent));
         let (seeds, _) = crate::generate_with(self.net, self.cfg, topic, self.cfg.search.seeds, patterns(intent));
         let fresh = seeds.into_iter().find(|s| s.check.is_ok() && !self.said.contains(&s.core));
         let (name, num) = self.named(topic);
@@ -195,6 +242,203 @@ impl<'a> Chat<'a> {
             }
             (false, None) => Reply::plain("Not that I know: no line in my network says so."),
         }
+    }
+
+    /// "What do dogs eat?": the topic (or its kind) does the verb in the
+    /// examples, and in that sense the verb is done to these.
+    fn object_of(&mut self, topic: u32, verb: u32) -> Reply {
+        let cx = Ctx::new(self.net, self.cfg, topic);
+        let (name, num) = self.named(topic);
+        let vtext = &self.net.node(verb).text;
+        let doing = if num == Num::Pl { format!("{name} {vtext}") } else { format!("{name} {}", self.net.form(verb, Form::ThirdSg).map(|n| n.text.as_str()).unwrap_or(vtext)) };
+        let mut found = None;
+        for (kind, _) in kinds(self.net, topic, 16) {
+            if let Some(l) = self.net.lines[kind as usize].iter().find(|l| l.kind == Kind::SubjectOf && l.to == verb) {
+                found = Some((kind, l.rank));
+                break;
+            }
+        }
+        let Some((by, sense)) = found else {
+            return Reply::plain(format!("I know of nothing that {doing}: no line in my network says {name} {vtext} anything."));
+        };
+        let mut objects: Vec<(u32, f64)> = self.net.lines[verb as usize]
+            .iter()
+            .filter(|l| l.kind == Kind::HasObject && l.rank == sense && cx.usable(l.to, Pos::Noun))
+            .map(|l| (l.to, cx.familiarity(l.to) + 0.5 * cx.meaning(l.to).max(-6.0)))
+            .collect();
+        objects.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap().then(a.0.cmp(&b.0)));
+        for (o, _) in objects {
+            let key = vec![topic, verb, o];
+            if self.said.contains(&key) {
+                continue;
+            }
+            let sentence = self.say(&cx, |_| Pred::Tr { verb, tense: Tense::Present, obj: Some(self.object_np(o)), sense });
+            if let Some(s) = sentence {
+                self.said.insert(key);
+                let why = vec![
+                    format!("{} -does-> {}", self.net.node(by).text, vtext),
+                    format!("{} -done to-> {}", vtext, self.net.node(o).text),
+                ];
+                return Reply { text: s, why };
+            }
+        }
+        if self.said.iter().any(|k| k.len() == 3 && k[0] == topic && k[1] == verb) {
+            return Reply::plain(format!("That is all I know about what {doing}."));
+        }
+        Reply::plain(format!("I know that {doing}, but not what: no example in my network says it."))
+    }
+
+    fn object_np(&self, o: u32) -> Np {
+        if self.net.node(o).mass {
+            Np { det: Det::The, num: Num::Sg, adj: None, noun: o }
+        } else {
+            Np { det: Det::Bare, num: Num::Pl, adj: None, noun: o }
+        }
+    }
+
+    /// "What eats fish?", "Which animals swim?": the words the examples show
+    /// doing the verb (to that object, in the same sense), of that kind if asked.
+    fn subject_of(&mut self, verb: u32, obj: Option<u32>, kind: Option<u32>) -> Reply {
+        let vtext = self.net.node(verb).text.clone();
+        let senses: Vec<u8> = match obj {
+            Some(o) => self.net.lines[verb as usize].iter().filter(|l| l.kind == Kind::HasObject && l.to == o).map(|l| l.rank).collect(),
+            None => Vec::new(),
+        };
+        let mut doers: Vec<(u32, f64, Vec<String>)> = Vec::new();
+        for l in self.net.lines[verb as usize].iter().filter(|l| l.kind == Kind::HasSubject) {
+            let s = l.to;
+            let n = self.net.node(s);
+            if n.pos != Pos::Noun || !n.sure || n.proper || n.text.contains(' ') {
+                continue;
+            }
+            if obj.is_some() && !senses.contains(&l.rank) {
+                continue;
+            }
+            let mut why = vec![format!("{} -does-> {vtext}", n.text)];
+            if let Some(k) = kind {
+                match kind_path(self.net, s, k) {
+                    Some(p) if s != k => why.push(p.iter().map(|&x| self.net.node(x).text.clone()).collect::<Vec<_>>().join(" -is a-> ")),
+                    _ => continue,
+                }
+            }
+            if doers.iter().any(|d| d.0 == s) {
+                continue;
+            }
+            doers.push((s, (1.0 + n.fam as f64).ln(), why));
+        }
+        doers.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap().then(a.0.cmp(&b.0)));
+        for (s, _, mut why) in doers {
+            let key = vec![s, verb, obj.unwrap_or(u32::MAX)];
+            if self.said.contains(&key) {
+                continue;
+            }
+            let cx = Ctx::new(self.net, self.cfg, s);
+            let sentence = match obj {
+                None => self.say(&cx, |_| Pred::Intr { verb, tense: Tense::Present }),
+                Some(o) => self.say(&cx, |_| Pred::Tr { verb, tense: Tense::Present, obj: Some(self.object_np(o)), sense: 0 }),
+            };
+            if let Some(text) = sentence {
+                self.said.insert(key);
+                self.topic = Some(s);
+                if let Some(o) = obj {
+                    why.push(format!("{vtext} -done to-> {}", self.net.node(o).text));
+                }
+                return Reply { text, why };
+            }
+        }
+        if self.said.iter().any(|k| k.len() == 3 && k[1] == verb && k[2] == obj.unwrap_or(u32::MAX)) {
+            return Reply::plain("That is all I know.".to_string());
+        }
+        let what = match (kind, obj) {
+            (Some(k), _) => format!("no {} that {vtext}{}", self.plural(k), obj.map(|o| format!(" {}", self.plural(o))).unwrap_or_default()),
+            (None, Some(o)) => format!("nothing that {} {}", self.net.form(verb, Form::ThirdSg).map(|n| n.text.clone()).unwrap_or(vtext.clone()), self.plural(o)),
+            (None, None) => format!("nothing that {}", self.net.form(verb, Form::ThirdSg).map(|n| n.text.clone()).unwrap_or(vtext.clone())),
+        };
+        Reply::plain(format!("I know of {what}."))
+    }
+
+    fn plural(&self, n: u32) -> String {
+        match self.net.form(n, Form::Plural) {
+            Some(p) if p.sure && !self.net.node(n).mass => p.text.clone(),
+            _ => self.net.node(n).text.clone(),
+        }
+    }
+
+    /// "What animals have wings?": the wholes the part belongs to, of that kind.
+    fn which_have(&mut self, kind: u32, part: u32) -> Reply {
+        let mut wholes: Vec<(u32, f64, Vec<String>)> = Vec::new();
+        for l in self.net.lines[part as usize].iter().filter(|l| l.kind == Kind::PartOf) {
+            let w = l.to;
+            let n = self.net.node(w);
+            if n.pos != Pos::Noun || !n.sure || n.proper {
+                continue;
+            }
+            let Some(p) = kind_path(self.net, w, kind).or_else(|| (w == kind).then(|| vec![w])) else { continue };
+            let why = vec![
+                format!("{} -part of-> {}", self.net.node(part).text, n.text),
+                p.iter().map(|&x| self.net.node(x).text.clone()).collect::<Vec<_>>().join(" -is a-> "),
+            ];
+            wholes.push((w, (1.0 + n.fam as f64).ln(), why));
+        }
+        wholes.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap().then(a.0.cmp(&b.0)));
+        for (w, _, why) in wholes {
+            let key = vec![w, part, kind];
+            if self.said.contains(&key) {
+                continue;
+            }
+            let cx = Ctx::new(self.net, self.cfg, w);
+            if let Some(text) = self.say(&cx, |s| Pred::Have { part, np: Some(self.complement(part, &s)) }) {
+                self.said.insert(key);
+                self.topic = Some(w);
+                return Reply { text, why };
+            }
+        }
+        if self.said.iter().any(|k| k.len() == 3 && k[1] == part && k[2] == kind) {
+            return Reply::plain(format!("That is all I know about {} that have {}.", self.plural(kind), self.plural(part)));
+        }
+        Reply::plain(format!("I know of no {} that have {}.", self.plural(kind), self.plural(part)))
+    }
+
+    /// "What kind of animal is a dog?": the step just before the kind on the is-a path.
+    fn kind_of(&mut self, topic: u32, kind: u32) -> Reply {
+        let cx = Ctx::new(self.net, self.cfg, topic);
+        let Some(path) = kind_path(self.net, topic, kind) else {
+            let (name, num) = self.named(topic);
+            let be = if num == Num::Pl { "are" } else { "is" };
+            return Reply::plain(format!("No line in my network says that {name} {be} {}.", self.plural(kind)));
+        };
+        let why = vec![path.iter().map(|&x| self.net.node(x).text.clone()).collect::<Vec<_>>().join(" -is a-> ")];
+        // the most telling kind: the one right before the asked kind, else the asked kind itself
+        let step = if path.len() >= 3 { path[path.len() - 2] } else { kind };
+        match self.say(&cx, |s| Pred::CopNp { noun: step, np: Some(self.complement(step, &s)) }) {
+            Some(text) => Reply { text, why },
+            None => Reply { text: "Yes.".into(), why },
+        }
+    }
+
+    /// "How big is a whale?": the adjectives the examples describe the topic
+    /// (or its kind) with, by the same measure (WordNet's attribute: size).
+    fn how_adj(&mut self, topic: u32, adj: u32) -> Reply {
+        let cx = Ctx::new(self.net, self.cfg, topic);
+        let measures: Vec<u32> = self.net.lines[adj as usize].iter().filter(|l| l.kind == Kind::Attribute).map(|l| l.to).collect();
+        let same_measure =
+            |a: u32| a == adj || self.net.lines[a as usize].iter().any(|l| l.kind == Kind::Attribute && measures.contains(&l.to));
+        let (name, num) = self.named(topic);
+        let be = if num == Num::Pl { "are" } else { "is" };
+        if measures.is_empty() {
+            return Reply::plain(format!("I do not know what \"{}\" measures, so I cannot say how {} {name} {be}.", self.net.node(adj).text, self.net.node(adj).text));
+        }
+        for (a, _, why) in cx.lined(Kind::ModifiedBy, Pos::Adj, crate::search::predicative) {
+            if !same_measure(a) {
+                continue;
+            }
+            if let Some(text) = self.say(&cx, |_| Pred::CopAdj { adj: a, tense: Tense::Present }) {
+                let m = self.net.node(measures[0]).text.clone();
+                return Reply { text, why: vec![why, format!("{} -attribute-> {m}", self.net.node(adj).text)] };
+            }
+        }
+        Reply::plain(format!("I do not know how {} {name} {be}: no example in my network describes {name} by {}.",
+                             self.net.node(adj).text, self.net.node(measures[0]).text))
     }
 
     fn is_a(&mut self, topic: u32, kind: u32) -> Reply {

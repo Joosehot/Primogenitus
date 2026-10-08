@@ -42,10 +42,15 @@ Primo: Not that I know: no line in my network says that whales are fishes.
 `primogenitus ask "question"` answers one question; `--explain` shows the
 lines each answer stands on.
 
-- `question.rs` reads the question whole, word for word: what is / what does
-  ... do / what does ... have / what is ... like / is X a Y / is X ADJ / does X
-  have a Y / can X VERB / tell me about X / what else, with pronouns (it, they)
-  for what was talked about. A word left over means not understood, never a
+- `question.rs` reads the question whole, word for word: what is / who is /
+  what does ... do / have / what is ... like / what do dogs eat / what eats
+  fish / which animals swim / what animals have wings / what kind of animal is
+  a dog / how big is a whale / is X a Y / is X ADJ / does X have a Y / can X
+  VERB / tell me about X / who are you / what else, with pronouns (it, they)
+  for what was talked about. Where, when, why and how are answered plainly:
+  the network has no lines for places, times, reasons or ways yet. A word that
+  reads two ways ("wings": the plural, or the pilot's badge) is read the way
+  whose number is sure and fits its determiner. A word left over means not understood, never a
   guess; an unknown word gets "did you mean".
 - `chat.rs` answers: open questions by the generator limited to the fitting
   patterns, yes/no questions by walking the lines (dog -> domestic animal ->

@@ -26,6 +26,9 @@ pub struct Chat {
     pub help: String,
     pub no_pronoun: String,
     pub nothing_yet: String,
+    pub who_am_i: String,
+    pub how_am_i: String,
+    pub cannot: String,
 }
 
 #[derive(Deserialize, Debug, Clone)]
