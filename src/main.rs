@@ -1,6 +1,7 @@
 //! primogenitus build                 build the word network once and freeze it
 //! primogenitus chat [--explain]      talk (one question per line)
 //! primogenitus ask "question"        one question, one answer
+//! primogenitus serve [--port 7878]   the chat page: http://127.0.0.1:7878/
 //! primogenitus <noun> [--seeds N] [--explain] [--rules rules.toml]
 
 use anyhow::{bail, Result};
@@ -20,6 +21,7 @@ fn main() -> Result<()> {
     };
     let rules = take("--rules").map(PathBuf::from).unwrap_or_else(|| root.join("rules.toml"));
     let seeds: Option<usize> = take("--seeds").map(|s| s.parse()).transpose()?;
+    let port: u16 = take("--port").map(|s| s.parse()).transpose()?.unwrap_or(7878);
     let explain = match args.iter().position(|a| a == "--explain") {
         Some(k) => {
             args.remove(k);
@@ -53,7 +55,11 @@ fn main() -> Result<()> {
         return Ok(());
     }
     if args.is_empty() {
-        bail!("usage: primogenitus build | chat | ask \"question\" | <noun> [--seeds N] [--explain]");
+        bail!("usage: primogenitus build | chat | ask \"question\" | serve [--port N] | <noun> [--seeds N] [--explain]");
+    }
+    if args[0] == "serve" {
+        let net = Network::load(&frozen)?;
+        return primogenitus::serve::serve(&net, &cfg, port);
     }
     if matches!(args[0].as_str(), "chat" | "ask") {
         let net = Network::load(&frozen)?;

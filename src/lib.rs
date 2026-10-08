@@ -17,6 +17,7 @@
 //!   search    meaning spreading, the beam, the seeds
 //!   question  the user's sentence read whole
 //!   chat      the chatbot: questions answered, the conversation remembered
+//!   serve     the chat page on this machine
 
 pub mod build;
 pub mod chat;
@@ -29,6 +30,7 @@ pub mod parser;
 pub mod question;
 pub mod rules;
 pub mod search;
+pub mod serve;
 pub mod wordnet;
 
 use config::Config;
