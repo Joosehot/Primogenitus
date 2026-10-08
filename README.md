@@ -1,10 +1,29 @@
 # Primogenitus
 
-The bot calls itself Primogenitus, Primo for short.
+A chatbot that is not trained. A frozen word network is built once from a
+downloaded dictionary (WordNet 3.1), sentences come from the HotMotor
+pipeline (lexicon, parser, rules, beam search with judges, checks), and
+Raven, its conversation layer, makes the talk humane: it hears feelings,
+remembers the person and keeps the thread. Nothing is trained and nothing
+updates. It calls itself Primogenitus, Primo for short.
 
-A motor that produces sentences. A frozen word network is built once from a
-downloaded dictionary, and sentences come from the HotMotor pipeline. Nothing
-is trained and nothing updates.
+## Getting started
+
+Rust (stable) and an internet connection for the one-time dictionary download.
+
+```
+cargo build --release
+target/release/primogenitus build      # download WordNet 3.1 once, build and freeze the network (~6 s)
+target/release/primogenitus serve      # the chat page: http://127.0.0.1:7878/
+target/release/primogenitus chat       # or talk in the terminal
+target/release/primogenitus ask "What is a dog?"   # Primo alone: one question, one fact
+cargo test --release                   # the proof (needs the built network)
+```
+
+WordNet 3.1 is (c) Princeton University and is downloaded at build time under
+its own license; it is not part of this repository.
+
+## The word network and the sentence motor
 
 ```
 $ primogenitus build
@@ -141,10 +160,16 @@ Every number is in `rules.toml`.
 both times, every seed's sentence parses, and the check refuses bad grammar
 ("Dogs barks.", "An dog barks.", "A dog are a canine."); `tests/chat.rs`
 holds a whole conversation (known facts yes, made-up ones not, pronouns,
-"what else" to its end, every sentence checked).
+"what else" to its end, every sentence checked); `tests/raven.rs` holds
+real conversations as they went, every turn of them read and answered in
+context (a name, a loss, a breakup, a sad day).
 
 ## Known limits
 
 The example-sentence parser is simple; a misread example gives an odd but
 grammatical sentence ("Birds land a lot."). Some odd ones are the
 dictionary's own ("Houses bearded the top of the heights").
+
+## License
+
+MIT. See [LICENSE](LICENSE).

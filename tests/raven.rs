@@ -156,3 +156,29 @@ fn a_breakup() {
     talk("Yeah it is");
     talk("Yes it is");
 }
+
+/// The fourth conversation as it really went (2026-10-08): the context held.
+#[test]
+fn the_context_holds() {
+    let Some((net, cfg)) = setup() else { return };
+    let mut raven = Raven::new(&net, &cfg).unwrap();
+    raven.greeting();
+    let mut talk = |q: &str| {
+        let r = raven.reply(q).text;
+        println!("You: {q}\nPrimogenitus: {r}");
+        assert!(!r.contains("did not") && !r.contains("glad"), "{q} -> {r}");
+        r
+    };
+    talk("Joose");
+    talk("Sad");
+    let r = talk("I broke up with my fiancee");
+    assert!(r.contains("sorry") || r.contains("hard"), "{r}");
+    let r = talk("Yes");
+    assert!(r.contains("listening"), "{r}");
+    talk("So she threw shit at me and then just left");
+    talk("So that's about it");
+    talk("Depressed");
+    talk("Maybe talking to my family");
+    let r = talk("Goodbye!");
+    assert!(!r.contains('?'), "{r}");
+}
