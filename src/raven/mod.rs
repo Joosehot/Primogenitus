@@ -107,7 +107,8 @@ const SAY_KEYS: &[&str] = &[
     "q_have_animal", "q_have", "q_like", "q_like_doing", "q_dislike", "q_role", "q_name", "q_topic", "q_open",
     "q_memory", "q_how_are_you", "not_sure", "pet_name", "pet_name_lost", "q_pet", "q_pet_lost", "q_ask_name", "age",
     "heard", "listening", "no_talk", "q_tell", "q_good_plain", "nice_trait", "heard_bad", "nothing", "creator",
-    "compliment", "insult", "about_me", "empathy_mild", "q_mild", "often", "repair", "q_tell_more", "q_like_doing_low",
+    "compliment", "insult", "about_me", "empathy_mild", "q_mild", "often", "repair", "q_tell_more", "q_like_doing_low", "hard_news", "q_hard_news", "good_news_self",
+    "yes_low", "heard_low", "who_am_i_more",
 ];
 
 pub struct Raven<'a> {
@@ -290,7 +291,7 @@ impl<'a> Raven<'a> {
             let w = w.to_lowercase();
             for &q in self.net.lookup(&w) {
                 let n = self.net.node(q);
-                if n.form != Form::Base || !matches!(n.pos, Pos::Adj | Pos::Noun) || n.proper {
+                if n.proper || !(matches!(n.pos, Pos::Adj | Pos::Noun) && n.form == Form::Base || n.pos == Pos::Verb) {
                     continue;
                 }
                 if let Some(v) = self.valence(n.lemma) {
@@ -341,7 +342,8 @@ impl<'a> Raven<'a> {
 
     pub fn reply(&mut self, text: &str) -> Reply {
         self.turn += 1;
-        let cx = turn::Context { expect: self.expect, referent: self.referent };
+        let low_now = self.low_since.map(|t| self.turn - t <= self.cfg.raven.judges.low_turns).unwrap_or(false);
+        let cx = turn::Context { expect: self.expect, referent: self.referent, low: low_now };
         let (turns, all) = turn::read(self.net, text, &cx);
         let asked_for = self.expect.take();
         let mut ctx = TurnCtx::default();
@@ -370,6 +372,10 @@ impl<'a> Raven<'a> {
                 }
                 Turn::Ask(q0) => {
                     ctx.asked = true;
+                    // about itself: more than one way to say it, so asking again is not answered with a repeat
+                    if q0 == Question::WhoAreYou {
+                        bodies.extend(self.parts("who_am_i_more", &b, |p| p.answer = true));
+                    }
                     let r = self.chat.answer_question(q0);
                     let topic = self.chat.topic();
                     let mut part = Part { text: self.warm(&r.text), answer: true, why: r.why.clone(), ..Default::default() };
@@ -462,7 +468,7 @@ impl<'a> Raven<'a> {
                             Some((a, _)) => s.set("adj", self.net.node(a).text.clone()),
                             None => s,
                         };
-                        openers.extend(self.parts("heard", &s, |p| p.feel = -1.0));
+                        openers.extend(self.parts("heard_low", &s, |p| p.feel = -1.0));
                         questions.extend(self.parts("q_tell_more", &s, q));
                     } else {
                         openers.extend(self.parts("heard", &s, |p| p.feel = if ctx.valence < 0.0 { -1.0 } else { tone }));
@@ -488,6 +494,21 @@ impl<'a> Raven<'a> {
                         _ => b.clone(),
                     };
                     questions.extend(self.parts(if ctx.low { "q_tell" } else { "q_open" }, &s2, q));
+                }
+                Turn::IHappened(event) => {
+                    let v = self.valence(event).unwrap_or(0.0);
+                    ctx.feel(v);
+                    if v < 0.0 {
+                        self.low_since = Some(self.turn);
+                        ctx.low = true;
+                    }
+                    let s = self.verb_slots(event, b.clone());
+                    let (open, ask) = if v < 0.0 { ("hard_news", "q_hard_news") } else if v > 0.0 { ("good_news_self", "q_good") } else { ("heard", "q_tell_more") };
+                    openers.extend(self.parts(open, &s, |p| p.feel = v));
+                    questions.extend(self.parts(ask, &s, |p| {
+                        p.question = true;
+                        p.feel = v.min(0.0);
+                    }));
                 }
                 Turn::Nothing => {
                     openers.extend(self.parts("nothing", &b, |_| {}));
@@ -725,6 +746,17 @@ impl<'a> Raven<'a> {
                         questions.extend(self.parts("q_tell", &s, q));
                         ctx.feel(-1.0);
                     }
+                    _ if ctx.low => {
+                        openers.extend(self.parts("yes_low", &b, |p| p.feel = -1.0));
+                        let s = match self.person.mood {
+                            Some((a, v)) if v < 0.0 => b.clone().set("adj", self.net.node(a).text.clone()),
+                            _ => b.clone(),
+                        };
+                        questions.extend(self.parts("q_tell_more", &s, |p| {
+                            p.question = true;
+                            p.feel = -1.0;
+                        }));
+                    }
                     _ => openers.extend(self.parts("yes", &b, |_| {})),
                 },
                 Turn::No => match asked_for {
@@ -834,6 +866,7 @@ fn expect_for(key: &str, text: &str, noun: Option<u32>) -> Option<Expect> {
         "q_ask_name" => Expect::Name,
         "q_like_doing" if text.contains("How often") => return with(Expect::Often),
         "q_bad" if text.contains("talk about it") => Expect::WantTalk,
+        _ if text.contains(" feel?") || text.starts_with("How are you feeling") => Expect::Feeling,
         "q_loss" if text.contains(" like?") => return with(Expect::Describe),
         "q_loss" => Expect::WantTalk,
         "q_have_animal" | "q_pet" if text.contains("name?") => return with(Expect::PetName),

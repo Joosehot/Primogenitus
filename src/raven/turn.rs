@@ -61,6 +61,8 @@ pub struct Context {
     pub expect: Option<Expect>,
     /// what "he", "she", "it", "they" are: the user's thing talked of last
     pub referent: Option<u32>,
+    /// they are low: nothing they say is refused, it is heard
+    pub low: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -78,6 +80,8 @@ pub enum Turn {
     Often(String),
     /// "what do you mean?": what Raven said did not make sense
     Repair,
+    /// "I broke up", "I lost my job", "we broke up": what happened to them
+    IHappened(u32),
     /// "nothing really", "not much"
     Nothing,
     /// "you are smart", "you are not an AI": something said about Raven (the
@@ -256,14 +260,19 @@ fn clause(net: &Network, w: &[String], o: &[String], cx: &Context) -> Option<Tur
     }
     // "yes, I want to", "yeah I do", "no, not now", "I would rather not"
     const YES_TAIL: &[&[&str]] = &[&["i", "want", "to"], &["i", "do"], &["i", "would"], &["i", "would", "like", "to"], &["please"],
-                                   &["of", "course"], &["let", "us"], &["lets"], &["i", "guess"], &["sure"]];
+                                   &["of", "course"], &["let", "us"], &["lets"], &["i", "guess"], &["sure"], &["it", "is"],
+                                   &["it", "was"], &["it", "does"], &["it", "really", "is"], &["i", "am"], &["i", "know"],
+                                   &["that", "is", "right"], &["that", "is", "true"], &["exactly"], &["true"], &["right"], &["it", "did"]];
     const NO_TAIL: &[&[&str]] = &[&["i", "do", "not"], &["not", "now"], &["not", "really"], &["thanks"], &["thank", "you"],
-                                  &["i", "would", "rather", "not"], &["maybe", "later"]];
+                                  &["i", "would", "rather", "not"], &["maybe", "later"], &["it", "is", "not"], &["it", "was", "not"],
+                                  &["i", "am", "not"], &["not", "at", "all"]];
     let tail_in = |k: usize, list: &[&[&str]]| list.iter().any(|t| s[k..].iter().copied().eq(t.iter().copied()));
     match s[0] {
         "yes" | "yeah" | "yep" | "sure" | "ok" | "okay" if n > 1 && tail_in(1, YES_TAIL) => return Some(Yes),
         "no" | "nope" | "nah" if n > 1 && tail_in(1, NO_TAIL) => return Some(No),
-        _ if tail_in(0, &[&["i", "want", "to"], &["i", "would", "like", "to"], &["i", "do"]]) => return Some(Yes),
+        _ if tail_in(0, &[&["i", "want", "to"], &["i", "would", "like", "to"], &["i", "do"], &["it", "is"], &["it", "really", "is"],
+                          &["it", "was"], &["i", "know"], &["exactly"], &["true"], &["right"], &["that", "is", "true"],
+                          &["that", "is", "right"], &["it", "does"], &["it", "did"]]) => return Some(Yes),
         _ if tail_in(0, &[&["i", "would", "rather", "not"], &["not", "now"], &["maybe", "later"]]) => return Some(No),
         _ => {}
     }
@@ -272,6 +281,33 @@ fn clause(net: &Network, w: &[String], o: &[String], cx: &Context) -> Option<Tur
         if s.starts_with(p) {
             if let Some(a) = adj_at(net, w, p.len(), n) {
                 return Some(Feel(a));
+            }
+        }
+    }
+    // what happened to them: "I broke up", "we broke up", "I lost my job", "I got fired"
+    if matches!(s[0], "i" | "we") && n >= 2 {
+        let k = if matches!(s[1], "got" | "have" | "just" | "was") && n >= 3 { 2 } else { 1 };
+        let k = if s.get(k) == Some(&"just") { k + 1 } else { k };
+        // a verb of two words first ("broke up" is "break up"), then one
+        for len in [2usize, 1] {
+            if k + len > n {
+                continue;
+            }
+            let head = s[k];
+            let rest = s[k + 1..k + len].join(" ");
+            for v in net.lookup(head).iter().map(|&q| net.node(q)).filter(|x| x.pos == Pos::Verb && matches!(x.form, Form::Past | Form::PastPart)) {
+                let base = &net.node(v.lemma).text;
+                let phrase = if len == 2 { format!("{base} {rest}") } else { base.clone() };
+                if let Some(event) = net.base(&phrase, Pos::Verb) {
+                    // what follows may only be what it happened to ("my job", "with her")
+                    let after = &s[k + len..];
+                    let ok = after.is_empty()
+                        || noun_at(net, w, k + len, n).is_some()
+                        || matches!(after, ["with", ..] | ["again"] | ["today"]);
+                    if ok {
+                        return Some(IHappened(event));
+                    }
+                }
             }
         }
     }
@@ -456,6 +492,10 @@ fn answer(net: &Network, text: &str, cx: &Context) -> Option<Vec<Turn>> {
         {
             Some(vec![Turn::PetNamed { noun, name: o[0].clone() }])
         }
+        // one feeling word to anything open: "broken"
+        Expect::WantTalk | Expect::Story | Expect::Topic if n <= 3 && adj_at(net, w, 0, n).is_some() => {
+            adj_at(net, w, 0, n).map(|adj| vec![Turn::Feel(adj)])
+        }
         Expect::Feeling => {
             // "good", "pretty good", "not bad", "a bit tired"
             let not = w[0] == "not";
@@ -564,7 +604,7 @@ pub fn read(net: &Network, text: &str, cx: &Context) -> (Vec<Turn>, bool) {
     }
     // a story Raven asked for is heard, even when it cannot be read
     let personal = words(text).0.first().map(|w| matches!(w.as_str(), "i" | "we" | "my" | "our" | "he" | "she" | "it" | "they" | "his" | "her" | "their")).unwrap_or(false);
-    if !all && (cx.expect.is_some() || personal) {
+    if !all && (cx.expect.is_some() || personal || cx.low) {
         out.push(Turn::Heard);
         return (out, true);
     }

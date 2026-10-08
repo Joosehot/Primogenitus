@@ -135,3 +135,24 @@ fn the_thread_is_kept() {
     let r = talk("What do you mean by that?");
     assert!(r.contains("Sorry"), "{r}");
 }
+
+/// The third conversation as it really went (2026-10-08): a breakup.
+#[test]
+fn a_breakup() {
+    let Some((net, cfg)) = setup() else { return };
+    let mut raven = Raven::new(&net, &cfg).unwrap();
+    raven.greeting();
+    let mut talk = |q: &str| {
+        let r = raven.reply(q).text;
+        println!("You: {q}\nPrimogenitus: {r}");
+        assert!(!r.contains("did not") && !r.contains("glad"), "{q} -> {r}");
+        r
+    };
+    talk("Joose");
+    talk("Sad");
+    let r = talk("I broke up");
+    assert!(r.contains("sorry") || r.contains("hard"), "{r}");
+    talk("Broken");
+    talk("Yeah it is");
+    talk("Yes it is");
+}
