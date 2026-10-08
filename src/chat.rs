@@ -96,7 +96,7 @@ impl<'a> Chat<'a> {
             Question::Unknown(why) => Reply::plain(why),
             Question::WhoAreYou => Reply::plain(c.who_am_i.clone()),
             Question::HowAreYou => Reply::plain(c.how_am_i.clone()),
-            Question::YouCan(v) => Reply::plain(self.me_word(v, &self.cfg.me.can, Pos::Verb).unwrap_or_else(|| self.cfg.me.cannot.clone())),
+            Question::YouCan(v, obj) => Reply::plain(self.me_can(v, obj).unwrap_or_else(|| self.cfg.me.cannot.clone())),
             Question::YouAreAdj(a) => Reply::plain(self.me_word(a, &self.cfg.me.is, Pos::Adj).unwrap_or_else(|| self.cfg.me.unknown_adj.clone())),
             Question::YouAre(k) => self.you_are(k),
             Question::Cannot(w) => Reply::plain(c.cannot.replace("{word}", &w).replace(
@@ -247,20 +247,61 @@ impl<'a> Chat<'a> {
         }
     }
 
+    /// "Can you have a conversation": after a light verb (have, make, take,
+    /// give, do) the object carries the meaning, read as its verb through the
+    /// dictionary's derivation line (conversation -> converse, a kind of talk).
+    fn me_can(&self, verb: u32, obj: Option<u32>) -> Option<String> {
+        let light = matches!(self.net.node(verb).text.as_str(), "have" | "make" | "take" | "give" | "do" | "hold" | "get");
+        // "do you have a name": what Primo has
+        if let (true, Some(o)) = (self.net.node(verb).text == "have", obj) {
+            if let Some(r) = self.me_word(o, &self.cfg.me.has, Pos::Noun) {
+                return Some(r);
+            }
+        }
+        if let (true, Some(o)) = (light, obj) {
+            for l in &self.net.lines[o as usize] {
+                if l.kind == Kind::Derived && self.net.node(l.to).pos == Pos::Verb && l.rank == 0 {
+                    if let Some(r) = self.me_word(l.to, &self.cfg.me.can, Pos::Verb) {
+                        return Some(r);
+                    }
+                }
+            }
+        }
+        self.me_word(verb, &self.cfg.me.can, Pos::Verb)
+    }
+
     /// What Primo says about itself for this verb or adjective: the word
     /// itself, or a word of the same meaning (speak for talk), in rules.toml.
     fn me_word(&self, w: u32, table: &std::collections::BTreeMap<String, String>, pos: Pos) -> Option<String> {
         let keys: Vec<(u32, &String)> = table.iter().filter_map(|(k, r)| self.net.base(k, pos).map(|id| (id, r))).collect();
-        if let Some((_, r)) = keys.iter().find(|(k, _)| *k == w) {
-            return Some((*r).clone());
-        }
-        // a synonym in a sense that is the most common for one of the two and
-        // common for both ("speak" for "talk"; not "see" for "learn", which
-        // share only a rare sense)
+        // a key itself, or a synonym of one in a sense that is the most common
+        // for one of the two and common for both ("speak" for "talk"; not
+        // "see" for "learn", which share only a rare sense)
         let common = |l: &crate::network::Line| l.rank.min(l.to_rank) == 0 && l.rank.max(l.to_rank) <= 2;
-        keys.iter()
-            .find(|(k, _)| self.net.lines[w as usize].iter().any(|l| l.kind == Kind::Synonym && l.to == *k && common(l)))
-            .map(|(_, r)| (*r).clone())
+        let matches = |c: u32| {
+            keys.iter()
+                .find(|(k, _)| *k == c || self.net.lines[c as usize].iter().any(|l| l.kind == Kind::Synonym && l.to == *k && common(l)))
+                .map(|(_, r)| (*r).clone())
+        };
+        if let Some(r) = matches(w) {
+            return Some(r);
+        }
+        // or a kind of one, up all the is-a lines of its most common sense, three
+        // steps at most ("converse" is a kind of "talk")
+        let mut frontier = vec![(w, 0u8)];
+        for _ in 0..3 {
+            let mut next = Vec::new();
+            for &(node, sense) in &frontier {
+                for l in self.net.lines[node as usize].iter().filter(|l| l.kind == Kind::Hypernym && l.rank == sense) {
+                    if let Some(r) = matches(l.to) {
+                        return Some(r);
+                    }
+                    next.push((l.to, l.to_rank));
+                }
+            }
+            frontier = next;
+        }
+        None
     }
 
     /// "Are you a program?": yes when the noun is one of Primo's kinds or a

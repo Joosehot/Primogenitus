@@ -22,7 +22,7 @@ fn world(reply: &str) -> Option<&str> {
     let r = reply.strip_prefix("Yes. ").unwrap_or(reply);
     let framing = ["Not that I know", "That is all", "I know of nothing", "I do not know", "I could not", "Who or what",
                    "Hello", "Goodbye", "You are welcome", "Ask me", "I know the word", "No. ", "Yes, ", "Yes. I am",
-                   "I cannot", "I am", "Not as you do", "I have no", "I can tell"];
+                   "I cannot", "I am", "Not as you do", "I have no", "I can tell", "My name"];
     (!framing.iter().any(|f| r.starts_with(f))).then_some(r)
 }
 
@@ -70,6 +70,10 @@ fn a_conversation() {
     // about itself
     assert!(ask("Can you talk?").starts_with("Yes"));
     assert!(ask("Can you speak English?").starts_with("Yes"));
+    assert!(ask("Can you have a conversation with me?").starts_with("Yes"));
+    assert!(ask("Will you talk to me about dogs?").starts_with("Yes"));
+    assert!(ask("Do you like dogs?").starts_with("I have no likes"));
+    assert!(ask("Do you have a name?").starts_with("Yes. My name is Primo"));
     assert!(ask("Do you learn?").starts_with("No. I am frozen"));
     assert!(ask("Are you a robot?").starts_with("No"));
     assert!(ask("Are you a program?").starts_with("Yes"));

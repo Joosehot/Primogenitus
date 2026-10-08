@@ -24,7 +24,7 @@
 //!   how ADJ is NP                            how it is, by the same measure (how big is a whale)
 //!   who is NP                                as "what is"
 //!   who are you / what is your name / how are you    about the bot
-//!   can you VERB [...] / do you VERB [...]   what the bot can do  (can you talk)
+//!   can/do/will you VERB [NP] [PREP NP]...   what the bot can do  (can you have a conversation with me)
 //!   are you NP / are you ADJ                 what the bot is      (are you a robot)
 //!   do you know [about] NP                   as "tell me about"
 //!   where / when / why / how ...             said plainly: no lines for places, times, reasons, ways
@@ -78,8 +78,8 @@ pub enum Question {
     WhoAreYou,
     /// how are you
     HowAreYou,
-    /// can you VERB, do you VERB
-    YouCan(u32),
+    /// can you VERB [NP]: the verb and its object
+    YouCan(u32, Option<u32>),
     /// are you NP
     YouAre(u32),
     /// are you ADJ
@@ -155,6 +155,25 @@ fn nps(net: &Network, t: &[String], i: usize) -> Vec<(Subject, usize)> {
     out
 }
 
+/// From i to the end only phrases like "with me", "in english", "about dogs".
+fn phrases_to_end(net: &Network, t: &[String], mut i: usize) -> bool {
+    while i < t.len() {
+        if lexicon::closed(&t[i]) != Some(lexicon::Closed::Prep) {
+            return false;
+        }
+        i += 1;
+        match t.get(i).map(|w| w.as_str()) {
+            Some("me" | "you" | "us" | "it" | "them" | "english") => i += 1,
+            Some(_) => match nps(net, t, i).first() {
+                Some(&(_, e)) => i = e,
+                None => return false,
+            },
+            None => return false,
+        }
+    }
+    true
+}
+
 fn adjective(net: &Network, w: &str) -> Option<u32> {
     net.lookup(w).iter().map(|&q| net.node(q)).find(|n| n.pos == Pos::Adj && n.form == Form::Base).map(|n| n.lemma)
 }
@@ -199,21 +218,44 @@ pub fn read(net: &Network, text: &str) -> Question {
             }
         }
     }
-    // about the bot: "can you talk", "can you speak english", "do you learn"
-    if matches!(s.first(), Some(&"can") | Some(&"could") | Some(&"do")) && s.get(1) == Some(&"you") && n >= 3 {
+    // about the bot: "can you talk", "can you have a conversation with me", "do you learn"
+    if matches!(s.first(), Some(&"can") | Some(&"could") | Some(&"do") | Some(&"will") | Some(&"would"))
+        && s.get(1) == Some(&"you")
+        && n >= 3
+    {
         if s[2] == "know" {
             let k = if s.get(3) == Some(&"about") { 4 } else { 3 };
             if let Some(topic) = whole(k, n) {
                 return Ask { topic, intent: Intent::About, more: false };
             }
         }
-        if let Some(v) = verb(net, &t[2]) {
-            let rest = &s[3..];
-            let tail_ok = rest.is_empty()
-                || matches!(rest, ["to", "me"] | ["with", "me"] | ["me"] | ["english"] | ["well"] | ["anything"] | ["things"])
-                || whole(3, n).is_some();
-            if tail_ok {
-                return YouCan(v);
+        // "can you tell me about cats": a request to be told
+        if matches!(s[2], "tell" | "describe" | "explain") {
+            if let Some(k) = s.iter().position(|w| *w == "about") {
+                if let Some(topic) = whole(k + 1, n) {
+                    return Ask { topic, intent: Intent::About, more: false };
+                }
+            }
+        }
+        // right after "can you" a verb comes, even one the closed words also
+        // have ("have", "like", "do")
+        let v = net.base(&t[2], Pos::Verb).filter(|_| lexicon::closed(&t[2]) != Some(lexicon::Closed::Pron));
+        if let Some(v) = v {
+            // the object, if any ("me" and "something" count as none), then
+            // phrases of a preposition and what it governs, to the end
+            let mut objects: Vec<(Option<u32>, usize)> = vec![(None, 3)];
+            if matches!(s.get(3), Some(&"me") | Some(&"something") | Some(&"anything") | Some(&"things") | Some(&"well") | Some(&"english")) {
+                objects.push((None, 4));
+            }
+            for (o, e) in nps(net, &t, 3) {
+                if let Subject::Noun(o) = o {
+                    objects.push((Some(o), e));
+                }
+            }
+            for (obj, e) in objects {
+                if phrases_to_end(net, &t, e) {
+                    return YouCan(v, obj);
+                }
             }
         }
     }

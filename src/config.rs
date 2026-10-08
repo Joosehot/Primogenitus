@@ -28,6 +28,7 @@ pub struct Me {
     pub unknown_adj: String,
     pub can: std::collections::BTreeMap<String, String>,
     pub is: std::collections::BTreeMap<String, String>,
+    pub has: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
