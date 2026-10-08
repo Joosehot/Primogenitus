@@ -17,6 +17,8 @@
 //!   search    meaning spreading, the beam, the seeds
 //!   question  the user's sentence read whole
 //!   chat      the chatbot: questions answered, the conversation remembered
+//!   raven     the conversation made humane: the person remembered, replies
+//!             searched and judged for feeling, listening, memory, flow
 //!   serve     the chat page on this machine
 
 pub mod build;
@@ -28,6 +30,7 @@ pub mod morph;
 pub mod network;
 pub mod parser;
 pub mod question;
+pub mod raven;
 pub mod rules;
 pub mod search;
 pub mod serve;

@@ -16,6 +16,49 @@ pub struct Config {
     pub article: Article,
     pub chat: Chat,
     pub me: Me,
+    pub raven: RavenCfg,
+}
+
+/// Raven: the words it says around Primo's facts, its judges' weights, its
+/// feeling anchors.
+#[derive(Deserialize, Debug, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct RavenCfg {
+    pub say: std::collections::BTreeMap<String, Vec<String>>,
+    pub judges: RavenJudges,
+    pub feeling: Feeling,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct RavenJudges {
+    pub feelings_first: f64,
+    pub facts_in_pain: f64,
+    pub shares_joy: f64,
+    pub answers: f64,
+    pub listens: f64,
+    pub unasked_fact: f64,
+    pub remembers: f64,
+    pub name_use: f64,
+    pub name_overuse: f64,
+    pub keeps_going: f64,
+    pub interrogation: f64,
+    pub repeat: f64,
+    pub generic: f64,
+    pub max_words: usize,
+    pub too_long: f64,
+    pub jitter: f64,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct Feeling {
+    pub good_adjectives: Vec<String>,
+    pub bad_adjectives: Vec<String>,
+    pub good_nouns: Vec<String>,
+    pub bad_nouns: Vec<String>,
+    pub good_events: Vec<String>,
+    pub bad_events: Vec<String>,
 }
 
 /// What Primo knows about itself.

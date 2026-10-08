@@ -131,3 +131,85 @@ memory = "Yes, for our conversation: what we talked about last, and what I have 
 brain = "No. I have a network of words, built once from a dictionary and frozen."
 body = "No. I have only words."
 feeling = "No. I have only words."
+
+# ---------------------------------------------------------------- Raven
+# Raven makes the conversation humane. Its replies are built from these parts
+# (one opener, one body, one question at most) and judged; Primo's facts fill
+# the bodies. Slots: {name} {noun} {a_noun} {nouns} {adj} {verb} {verbing}
+# {that} {what} {kinds}; a template whose slot has no word is not used.
+[raven.say]
+greeting = ["Hello. I am Primo. What is your name?", "Hello.", "Hi there."]
+goodbye = ["Goodbye. It was nice talking with you.", "Goodbye, {name}. Take care.", "Bye for now."]
+thanks = ["You are welcome.", "You are welcome, {name}.", "Any time."]
+nice_to_meet = ["Nice to meet you, {name}.", "Hello, {name}. It is good to meet you."]
+empathy_bad = ["I am sorry you feel {adj}.", "That sounds hard.", "I am sorry to hear that."]
+empathy_good = ["That is good to hear.", "I am glad you feel {adj}.", "How nice."]
+feel_neutral = ["You feel {adj}.", "I see."]
+loss = ["I am so sorry about your {noun}.", "I am very sorry. Losing {a_noun} is hard.", "That is very sad. I am sorry."]
+bad_news = ["I am sorry your {noun} is {adj}.", "I am sorry to hear that.", "That must be worrying."]
+good_news = ["How lovely.", "That is good news about your {noun}.", "I am glad to hear that."]
+neutral_news = ["Your {noun} is {adj}.", "I see."]
+like = ["I am glad you like {nouns}.", "You like {nouns}."]
+like_doing = ["I am glad you enjoy {verbing}.", "{verbing} sounds good."]
+dislike = ["I understand.", "Fair enough. Not everyone likes {nouns}."]
+have = ["Oh, you have {a_noun}.", "{a_noun}, how nice."]
+role = ["So you are {a_noun}.", "{a_noun}, that is interesting."]
+opinion = ["You think {nouns} are {adj}.", "I can see why you think so."]
+kind_yes = ["{kinds} are {nouns}, yes."]
+laugh = ["I am glad that made you smile.", "Ha."]
+okay = ["All right.", "Good."]
+sorry = ["No need to be sorry.", "That is all right."]
+dont_know = ["That is all right.", "No problem."]
+yes = ["Good.", "I am glad."]
+no = ["That is all right.", "I see."]
+not_followed = ["I did not quite follow that.", "Sorry, I did not understand all of that."]
+not_known = ["Not as far as I know: I have never read that {that}."]
+know_little = ["I do not know much about {what} yet."]
+not_sure = ["I am not sure what {that}. I have not read about it."]
+pet_name = ["{pet} is a lovely name.", "{pet}, what a nice name."]
+pet_name_lost = ["{pet} is a lovely name. You must miss {pron}.", "You must miss {pet}."]
+q_pet = ["What is {pet} like?", "How old is {pet}?"]
+q_pet_lost = ["What do you remember most about {pet}?", "How long did you have {pet}?"]
+q_bad = ["Do you want to talk about it?", "What happened?", "Is there anything that would help?"]
+q_good = ["What made you feel {adj}?", "What happened?", "Tell me more."]
+q_loss = ["Do you want to tell me about your {noun}?", "What was your {noun} like?"]
+q_have_animal = ["What is your {noun}'s name?", "How old is your {noun}?", "What is your {noun} like?"]
+q_have = ["What is your {noun} like?", "How long have you had your {noun}?"]
+q_like = ["What do you like most about {nouns}?", "Do you have {a_noun}?"]
+q_like_doing = ["How often do you {verb}?", "When did you start {verbing}?"]
+q_dislike = ["What do you not like about {nouns}?"]
+q_role = ["What is it like to be {a_noun}?", "Do you enjoy being {a_noun}?"]
+q_name = ["How are you today?", "What would you like to talk about?"]
+q_topic = ["Do you have {a_noun}?", "What made you think of {nouns}?", "What do you like about {nouns}?"]
+q_open = ["What would you like to talk about?", "Tell me something about yourself.", "How is your day going?"]
+q_memory = ["Is that true of your {noun} too?", "Does your {noun} do that?"]
+q_how_are_you = ["How are you, {name}?", "How are you today?"]
+
+# The humane judges' weights.
+[raven.judges]
+feelings_first = 4.0        # sympathy first when someone hurts (or the same, taken away)
+facts_in_pain = -4.0        # a fact while someone hurts
+shares_joy = 2.0
+answers = 4.0               # a question asked gets its answer (or the same, taken away)
+listens = 1.5               # takes up what the user talked about
+unasked_fact = -1.2         # a fact nobody asked for, when someone tells about themselves
+remembers = 1.5             # brings back what the user told before
+name_use = 0.6
+name_overuse = -1.0         # the name in the last two replies already
+keeps_going = 1.0           # one question back
+interrogation = -1.5        # a fourth question in a row, or a question at goodbye
+repeat = -6.0               # a part said before
+generic = -0.4              # a question that would fit anything
+max_words = 32
+too_long = -0.15            # per word past max_words
+jitter = 0.3                # the turn's tie-break, so equal replies vary
+
+# The feeling anchors: words that feel good or bad. Other words are read
+# through the network (similar, opposite, the feeling they name).
+[raven.feeling]
+good_adjectives = ["happy", "glad", "good", "great", "fine", "excited", "proud", "calm", "grateful", "cheerful", "well", "wonderful", "lucky", "relaxed", "healthy", "better", "content", "joyful", "pleased", "hopeful", "loved"]
+bad_adjectives = ["sad", "unhappy", "angry", "afraid", "scared", "anxious", "worried", "tired", "lonely", "bored", "sick", "ill", "depressed", "upset", "hurt", "bad", "awful", "terrible", "miserable", "stressed", "dead", "lost", "broken", "nervous", "frustrated", "exhausted", "sore"]
+good_nouns = ["happiness", "joy", "love", "pleasure", "hope", "pride", "calmness", "enthusiasm", "gratitude", "affection", "satisfaction", "excitement", "contentment"]
+bad_nouns = ["sadness", "unhappiness", "sorrow", "anger", "fear", "anxiety", "shame", "pain", "grief", "loneliness", "dislike", "boredom", "disgust", "despair", "worry", "jealousy", "frustration", "guilt"]
+good_events = ["win", "pass", "marry", "graduate", "recover", "succeed", "arrive", "celebrate"]
+bad_events = ["die", "lose", "leave", "break", "fail", "hurt", "crash", "disappear", "suffer", "fall"]

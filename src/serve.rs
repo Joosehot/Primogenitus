@@ -6,7 +6,7 @@
 //!
 //! One conversation at a time, answered in turn (it is a local page).
 
-use crate::chat::Chat;
+use crate::raven::Raven;
 use crate::config::Config;
 use crate::network::Network;
 use anyhow::Result;
@@ -59,15 +59,15 @@ fn respond(stream: &mut TcpStream, status: &str, kind: &str, body: &str) -> Resu
 pub fn serve(net: &Network, cfg: &Config, port: u16) -> Result<()> {
     let listener = TcpListener::bind(("127.0.0.1", port))?;
     println!("Primo is listening: http://127.0.0.1:{port}/  (ctrl+c to stop)");
-    let mut chat = Chat::new(net, cfg);
+    let mut chat = Raven::new(net, cfg)?;
     for stream in listener.incoming() {
         let Ok(mut stream) = stream else { continue };
         let Ok(req) = read_request(&mut stream) else { continue };
         let result = match (req.method.as_str(), req.path.as_str()) {
             ("GET", "/") | ("GET", "/index.html") => respond(&mut stream, "200 OK", "text/html", PAGE),
             ("POST", "/start") => {
-                chat = Chat::new(net, cfg);
-                respond(&mut stream, "200 OK", "application/json", &json!({ "text": cfg.chat.greeting }).to_string())
+                chat = Raven::new(net, cfg)?;
+                respond(&mut stream, "200 OK", "application/json", &json!({ "text": chat.greeting() }).to_string())
             }
             ("POST", "/ask") => {
                 let q = serde_json::from_str::<serde_json::Value>(&req.body)

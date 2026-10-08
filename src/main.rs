@@ -63,10 +63,13 @@ fn main() -> Result<()> {
     }
     if matches!(args[0].as_str(), "chat" | "ask") {
         let net = Network::load(&frozen)?;
+        // "ask" is Primo alone (one question, one fact); "chat" talks through Raven
         let mut chat = primogenitus::chat::Chat::new(&net, &cfg);
+        let mut raven = primogenitus::raven::Raven::new(&net, &cfg)?;
+        let is_ask = args[0] == "ask";
         let mut answer = |q: &str| {
             let t = Instant::now();
-            let r = chat.reply(q);
+            let r = if is_ask { chat.reply(q) } else { raven.reply(q) };
             println!("Primo: {}", r.text);
             if explain {
                 for w in &r.why {
@@ -79,7 +82,7 @@ fn main() -> Result<()> {
             answer(&args[1..].join(" "));
             return Ok(());
         }
-        println!("Primo: {}", cfg.chat.greeting);
+        println!("Primo: {}", cfg.raven.say["greeting"][0]);
         let stdin = std::io::stdin();
         let mut line = String::new();
         loop {

@@ -22,7 +22,48 @@ Dogs snatch a bone.
 
 `--explain` shows every score term and the line each sentence stands on.
 
-## The chatbot
+## Raven: the conversation, made humane
+
+`primogenitus chat` and the page talk through Raven. Primo knows what is in
+the world; Raven decides how to say it to a person.
+
+```
+You: Hi, my name is Joose
+Primo: Hello, Joose. It is good to meet you. How are you today?
+You: My dog died
+Primo: That is very sad. I am sorry, Joose. What was your dog like?
+You: Her name was Musti
+Primo: You must miss Musti. What do you remember most about Musti?
+You: I have a cat too
+Primo: Oh, you have a cat, Joose. What is your cat like?
+You: Is a cat an animal?
+Primo: Yes. Cats are animals. Is that true of your cat too?
+```
+
+- `raven/turn.rs` reads a turn whole, clause by clause: questions go to
+  Primo's parser; statements are read too (a name, a feeling, what they are,
+  like, dislike, have, what happened to something of theirs, a pet's name,
+  an opinion, yes / no / thanks / haha).
+- `raven/feeling.rs` tells how a word feels from the network: an anchor word
+  in rules.toml, a similar one, an opposite (flipped), or the feeling it names
+  up the is-a lines.
+- `raven/mod.rs` remembers the person (name, mood, likes, what they have,
+  what they lost, their pets' names) and makes every reply of at most one
+  opener, one body (Primo's answer or a fact) and one question back.
+- `raven/judges.rs`, the humane judges, score each whole reply: feelings
+  first (sympathy before anything, no facts while someone hurts; joy shared),
+  answers, listens (takes up what was said, greets a name, no fact nobody
+  asked for), remembers (brings back what was told, the name now and then),
+  keeps going (asks back, but not a fourth question in a row, not at
+  goodbye), natural (nothing twice, not the same opening, not too long).
+- The search is the old Raven's: every reply weighed, MAX picks, the judges
+  as the evaluator instead of a trained model. Raven's words are in
+  `[raven.say]`, the weights in `[raven.judges]`, the feeling anchors in
+  `[raven.feeling]`. Nothing is trained.
+
+`primogenitus ask "..."` is Primo alone (one question, one fact).
+
+## The chatbot (Primo alone)
 
 ```
 $ primogenitus chat

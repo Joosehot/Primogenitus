@@ -72,6 +72,16 @@ impl<'a> Chat<'a> {
         self.answer(q)
     }
 
+    /// Answer a question already read (Raven reads the turn itself).
+    pub fn answer_question(&mut self, q: Question) -> Reply {
+        self.answer(q)
+    }
+
+    /// What was talked about last.
+    pub fn topic(&self) -> Option<u32> {
+        self.topic
+    }
+
     fn answer(&mut self, q: Question) -> Reply {
         let c = &self.cfg.chat;
         // what "what else" asks again: the question, with "it" made what it meant
