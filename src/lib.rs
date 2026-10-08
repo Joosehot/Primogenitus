@@ -15,14 +15,18 @@
 //!   input     what starts a sentence
 //!   rules     the sentence patterns and the judges
 //!   search    meaning spreading, the beam, the seeds
+//!   question  the user's sentence read whole
+//!   chat      the chatbot: questions answered, the conversation remembered
 
 pub mod build;
+pub mod chat;
 pub mod config;
 pub mod input;
 pub mod lexicon;
 pub mod morph;
 pub mod network;
 pub mod parser;
+pub mod question;
 pub mod rules;
 pub mod search;
 pub mod wordnet;
@@ -40,6 +44,9 @@ pub struct Seed {
     pub check: Result<String, String>,
     /// the sentence's content words (seeds must differ in them)
     pub words: Vec<u32>,
+    /// what the sentence says, without the subject's adjective ("noisy dogs
+    /// snatch a bone" says what "dogs snatch a bone" says)
+    pub core: Vec<u32>,
 }
 
 fn words(cx: &Ctx, c: &Cand) -> Vec<u32> {
@@ -65,11 +72,17 @@ fn words(cx: &Ctx, c: &Cand) -> Vec<u32> {
 /// Generate: one sentence per seed, then the judges pick. Returns the seeds
 /// (best first) and the index of the winner (None when no seed passed the check).
 pub fn generate(net: &Network, cfg: &Config, topic: u32, seeds: usize) -> (Vec<Seed>, Option<usize>) {
+    let all: Vec<&str> = rules::ALL.iter().map(|p| p.name()).collect();
+    generate_with(net, cfg, topic, seeds, &all)
+}
+
+/// As `generate`, with only these sentence patterns.
+pub fn generate_with(net: &Network, cfg: &Config, topic: u32, seeds: usize, patterns: &[&str]) -> (Vec<Seed>, Option<usize>) {
     let mut cx = Ctx::new(net, cfg, topic);
     let mut out: Vec<Seed> = Vec::new();
     for s in 0..seeds as u64 {
         cx.seed = s;
-        for c in search::beam(&cx) {
+        for c in search::beam(&cx, patterns) {
             let Some(text) = search::realize(&cx, &c) else { continue };
             let w = words(&cx, &c);
             if out.iter().any(|o| o.words == w) {
@@ -77,7 +90,11 @@ pub fn generate(net: &Network, cfg: &Config, topic: u32, seeds: usize) -> (Vec<S
             }
             let score = c.parts.iter().filter(|p| p.0 != "seed").map(|p| p.1).sum();
             let check = parser::check(net, cfg, &text).map_err(|e| e.to_string());
-            out.push(Seed { seed: s, cand: c, text, score, check, words: w });
+            let core = match c.subj.as_ref().and_then(|s| s.adj) {
+                Some(a) => w.iter().copied().filter(|&x| x != a).collect(),
+                None => w.clone(),
+            };
+            out.push(Seed { seed: s, cand: c, text, score, check, words: w, core });
             break;
         }
     }

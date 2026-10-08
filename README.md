@@ -22,6 +22,39 @@ Dogs snatch a bone.
 
 `--explain` shows every score term and the line each sentence stands on.
 
+## The chatbot
+
+```
+$ primogenitus chat
+Primo: Hello. Ask me about a thing, an animal or a person: ...
+You: Is a dog an animal?
+Primo: Yes. Dogs are animals.
+You: Does it have a tail?
+Primo: Yes. Dogs have tails.
+You: What does a dog do?
+Primo: Dogs snatch a bone.
+You: What else?
+Primo: Dogs lick a hand.
+You: Is a whale a fish?
+Primo: Not that I know: no line in my network says that whales are fishes.
+```
+
+`primogenitus ask "question"` answers one question; `--explain` shows the
+lines each answer stands on.
+
+- `question.rs` reads the question whole, word for word: what is / what does
+  ... do / what does ... have / what is ... like / is X a Y / is X ADJ / does X
+  have a Y / can X VERB / tell me about X / what else, with pronouns (it, they)
+  for what was talked about. A word left over means not understood, never a
+  guess; an unknown word gets "did you mean".
+- `chat.rs` answers: open questions by the generator limited to the fitting
+  patterns, yes/no questions by walking the lines (dog -> domestic animal ->
+  animal, never jumping senses; a part or a deed inherited from a kind). The
+  conversation remembers its topic and what was said, so "what else" gives
+  something new until "That is all I know".
+- Every sentence about the world passes the grammar judges and the check.
+  No line means "Not that I know", never a guess.
+
 ## The frozen word network
 
 - **Source**: WordNet 3.1, downloaded once into `data/wordnet/`.
@@ -58,7 +91,9 @@ Every number is in `rules.toml`.
 `cargo test`: the spelling rules, the article rule, and on the frozen network
 (`tests/sentences.rs`) 50 topics, each generated twice: the same sentences
 both times, every seed's sentence parses, and the check refuses bad grammar
-("Dogs barks.", "An dog barks.", "A dog are a canine.").
+("Dogs barks.", "An dog barks.", "A dog are a canine."); `tests/chat.rs`
+holds a whole conversation (known facts yes, made-up ones not, pronouns,
+"what else" to its end, every sentence checked).
 
 ## Known limits
 

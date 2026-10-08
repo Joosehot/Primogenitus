@@ -1,4 +1,6 @@
 //! primogenitus build                 build the word network once and freeze it
+//! primogenitus chat [--explain]      talk (one question per line)
+//! primogenitus ask "question"        one question, one answer
 //! primogenitus <noun> [--seeds N] [--explain] [--rules rules.toml]
 
 use anyhow::{bail, Result};
@@ -51,7 +53,47 @@ fn main() -> Result<()> {
         return Ok(());
     }
     if args.is_empty() {
-        bail!("usage: primogenitus build | primogenitus <noun> [--seeds N] [--explain]");
+        bail!("usage: primogenitus build | chat | ask \"question\" | <noun> [--seeds N] [--explain]");
+    }
+    if matches!(args[0].as_str(), "chat" | "ask") {
+        let net = Network::load(&frozen)?;
+        let mut chat = primogenitus::chat::Chat::new(&net, &cfg);
+        let mut answer = |q: &str| {
+            let t = Instant::now();
+            let r = chat.reply(q);
+            println!("Primo: {}", r.text);
+            if explain {
+                for w in &r.why {
+                    println!("       line: {w}");
+                }
+                println!("       ({:.3} s)", t.elapsed().as_secs_f64());
+            }
+        };
+        if args[0] == "ask" {
+            answer(&args[1..].join(" "));
+            return Ok(());
+        }
+        println!("Primo: {}", cfg.chat.greeting);
+        let stdin = std::io::stdin();
+        let mut line = String::new();
+        loop {
+            use std::io::Write;
+            print!("You: ");
+            std::io::stdout().flush()?;
+            line.clear();
+            if stdin.read_line(&mut line)? == 0 {
+                break;
+            }
+            let q = line.trim();
+            if q.is_empty() {
+                continue;
+            }
+            answer(q);
+            if matches!(primogenitus::question::read(&net, q), primogenitus::question::Question::Goodbye) {
+                break;
+            }
+        }
+        return Ok(());
     }
 
     let t = Instant::now();

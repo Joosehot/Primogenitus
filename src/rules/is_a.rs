@@ -1,5 +1,5 @@
 //! "A dog is a canine." The kind the topic is, read straight off its is-a
-//! lines (one step, or two with a cost), its common senses first.
+//! lines (one step, or two with a cost), in its most common sense only.
 
 use super::Pattern;
 use crate::network::{Kind, Pos};
@@ -7,8 +7,8 @@ use crate::search::{Cand, Ctx, Pred};
 
 pub struct IsA;
 
-/// Words one step along `kind` from the topic, or two (through the topic's
-/// own kind, its most common sense, with a cost): (word, score, the path).
+/// Words one step along `kind` from the topic's most common sense, or two
+/// (through its kind, with a cost): (word, score, the path).
 pub fn along(cx: &Ctx, kind: Kind) -> Vec<(u32, f64, String)> {
     let decay = cx.cfg.spread.rank_decay as f64;
     let topic = cx.topic;
@@ -24,8 +24,8 @@ pub fn along(cx: &Ctx, kind: Kind) -> Vec<(u32, f64, String)> {
             None => out.push((w, s, why)),
         }
     };
-    for l in step(cx, topic, kind) {
-        let s = decay.powi(l.rank as i32).ln() + cx.familiarity(l.to);
+    for l in step(cx, topic, kind).filter(|l| l.rank == 0) {
+        let s = cx.familiarity(l.to);
         push(l.to, s, format!("{} -{}-> {}", name(topic), kind.name(), name(l.to)));
     }
     for h in step(cx, topic, Kind::Hypernym).filter(|h| h.rank == 0) {

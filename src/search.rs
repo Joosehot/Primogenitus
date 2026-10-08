@@ -463,11 +463,11 @@ fn objects(cx: &Ctx, c: &Cand) -> Vec<Cand> {
     out
 }
 
-/// One seed: the beam from every pattern's heads to whole sentences.
-pub fn beam(cx: &Ctx) -> Vec<Cand> {
+/// One seed: the beam from the allowed patterns' heads to whole sentences.
+pub fn beam(cx: &Ctx, patterns: &[&str]) -> Vec<Cand> {
     let width = cx.cfg.search.beam;
     let mut states: Vec<Cand> = Vec::new();
-    for p in rules::ALL {
+    for p in rules::ALL.iter().filter(|p| patterns.contains(&p.name())) {
         states.extend(p.heads(cx).into_iter().filter_map(|c| judged(cx, c)));
     }
     let states = prune(states, width * 4);

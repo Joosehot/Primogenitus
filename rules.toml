@@ -75,3 +75,13 @@ is_adj = 0.0
 # matching beginning decides
 an = ["a", "e", "i", "o", "u", "hour", "honest", "honor", "honour", "heir", "unim", "unin", "unint", "unid", "unif", "unil", "unis"]
 a = ["uni", "use", "usu", "uti", "ura", "ure", "uro", "eu", "ewe", "one", "once", "uk", "ubi", "uga", "uku", "unicorn", "uniform", "union", "unique", "unit", "univers"]
+
+# What the chatbot says that is not about the world (everything about the
+# world comes from the network and passes the judges and the check).
+[chat]
+greeting = "Hello. Ask me about a thing, an animal or a person: what it is, what it does, what it has, what it is like."
+goodbye = "Goodbye."
+thanks = "You are welcome."
+help = "Ask me: what is a dog, what does a dog do, what does a dog have, what is a dog like, is a dog an animal, does a dog have a tail, can dogs swim. Say \"what else\" for more, and \"it\" or \"they\" for what we talked about."
+no_pronoun = "Who or what do you mean? We have not talked about anything yet."
+nothing_yet = "Ask me something first."

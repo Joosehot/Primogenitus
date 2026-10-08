@@ -212,7 +212,7 @@ pub fn read_topic(net: &Network, word: &str) -> Result<u32> {
     bail!("\"{w}\" is not in the network (did you mean \"{near}\"?)")
 }
 
-fn closest(net: &Network, w: &str) -> String {
+pub fn closest(net: &Network, w: &str) -> String {
     let mut best = (usize::MAX, String::new());
     for k in net.words() {
         if k.len().abs_diff(w.len()) > 2 {

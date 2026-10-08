@@ -14,6 +14,18 @@ pub struct Config {
     pub score: Score,
     pub patterns: Patterns,
     pub article: Article,
+    pub chat: Chat,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct Chat {
+    pub greeting: String,
+    pub goodbye: String,
+    pub thanks: String,
+    pub help: String,
+    pub no_pronoun: String,
+    pub nothing_yet: String,
 }
 
 #[derive(Deserialize, Debug, Clone)]
