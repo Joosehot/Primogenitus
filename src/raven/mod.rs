@@ -202,6 +202,12 @@ impl<'a> Raven<'a> {
                 let mut p = Part { text, ..Default::default() };
                 p.name = t.contains("{name}");
                 make(&mut p);
+                // it takes up only what its words name ("I am sorry to hear that" names no cat)
+                let low = p.text.to_lowercase();
+                p.mentions.retain(|&m| {
+                    let w = &self.net.node(m).text;
+                    low.contains(w.as_str()) || self.net.form(m, Form::Plural).map(|f| low.contains(f.text.as_str())).unwrap_or(false)
+                });
                 Some(p)
             })
             .collect()
