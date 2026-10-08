@@ -1,0 +1,77 @@
+# Every number Primogenitus uses. No numbers live in rule code.
+
+[build]
+url = "https://wordnetcode.princeton.edu/wn3.1.dict.tar.gz"
+semantic_targets = 3        # a sense-to-sense line reaches this many words of the target sense
+frame_senses = 2            # a verb's sentence frames come from its most common senses only
+# WordNet's lexicographer files whose nouns may be uncountable ("bread",
+# "loot", "anger"): countability cannot be known, so only "the X" is said
+mass_lexfiles = [7, 9, 12, 13, 19, 21, 22, 26, 27]
+# ... unless the dictionary's own texts count it: "an apple" standing alone (not
+# "a water bird") this many times makes a noun countable
+count_evidence = 3
+
+# How much meaning a line carries when meaning spreads from the input word.
+[lines]
+form_of = 1.0
+synonym = 0.9
+hypernym = 0.6
+hyponym = 0.25
+has_part = 0.5
+part_of = 0.3
+has_member = 0.2
+member_of = 0.2
+made_of = 0.3
+substance_of = 0.3
+attribute = 0.5
+derived = 0.5
+antonym = 0.2
+similar = 0.5
+entails = 0.4
+causes = 0.4
+pertains = 0.4
+subject_of = 1.2
+has_subject = 1.2
+object_of = 1.0
+has_object = 1.0
+modifies = 1.0
+modified_by = 1.0
+
+[spread]
+hops = 3
+keep = 4000                 # the strongest nodes carried into the next hop
+rank_decay = 0.6            # a word's 2nd sense counts 0.6, its 3rd 0.36, ...
+degree_power = 0.5          # a node with many lines passes less along each
+
+[search]
+beam = 32
+seeds = 6
+candidates = 12             # choices offered per slot
+jitter = 0.35               # how much a seed (other than seed 0) shakes the meaning scores
+subject_adjectives = 3
+
+[score]
+meaning = 1.0
+familiarity = 0.5           # per log of how often the word was tagged in use
+rare = -4.0                 # a word never tagged in use
+object_line = 2.0           # the verb has the object in a parsed example
+animacy = -2.5              # a person's verb with a thing (or the other way)
+past = -0.3
+generic_a = -0.2            # "A dog barks" rather than "The dog barks"
+adjective = -0.6
+hop2 = -1.0                 # an is-a or has-part line two steps away
+role_subject = 1.5          # the topic (or its kind) does the verb in a parsed example
+role_object = -3.0          # the topic undergoes the verb in the examples, and never does it
+
+[patterns]                  # how much each sentence shape is preferred
+is_a = 0.0
+has_part = -0.3
+does = 0.4
+does_to = 0.6
+is_adj = 0.0
+
+[article]
+# "an" before a vowel sound, "a" before a consonant sound; the longest
+# matching beginning decides
+an = ["a", "e", "i", "o", "u", "hour", "honest", "honor", "honour", "heir", "unim", "unin", "unint", "unid", "unif", "unil", "unis"]
+a = ["uni", "use", "usu", "uti", "ura", "ure", "uro", "eu", "ewe", "one", "once", "uk", "ubi", "uga", "uku", "unicorn", "uniform", "union", "unique", "unit", "univers"]
