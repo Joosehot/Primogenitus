@@ -46,6 +46,9 @@ pub struct RavenJudges {
     pub repeat: f64,
     pub generic: f64,
     pub max_words: usize,
+    pub low_turns: u64,
+    pub off_thread: f64,
+    pub stays: f64,
     pub too_long: f64,
     pub jitter: f64,
 }

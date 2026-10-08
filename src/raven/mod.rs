@@ -94,6 +94,9 @@ pub struct TurnCtx {
     pub closing: bool,
     /// the user told their name in this turn
     pub new_name: bool,
+    /// they told of a bad feeling a short while ago, and nothing better since:
+    /// the conversation stays gentle and on it
+    pub low: bool,
     pub nouns: Vec<u32>,
 }
 
@@ -104,7 +107,7 @@ const SAY_KEYS: &[&str] = &[
     "q_have_animal", "q_have", "q_like", "q_like_doing", "q_dislike", "q_role", "q_name", "q_topic", "q_open",
     "q_memory", "q_how_are_you", "not_sure", "pet_name", "pet_name_lost", "q_pet", "q_pet_lost", "q_ask_name", "age",
     "heard", "listening", "no_talk", "q_tell", "q_good_plain", "nice_trait", "heard_bad", "nothing", "creator",
-    "compliment", "insult", "about_me", "empathy_mild", "q_mild",
+    "compliment", "insult", "about_me", "empathy_mild", "q_mild", "often", "repair", "q_tell_more", "q_like_doing_low",
 ];
 
 pub struct Raven<'a> {
@@ -118,6 +121,10 @@ pub struct Raven<'a> {
     expect: Option<Expect>,
     /// the user's thing talked of last ("she", "it")
     referent: Option<u32>,
+    /// the turn their bad feeling was told on
+    low_since: Option<u64>,
+    /// what Raven's last reply was about, for a repair
+    last_topic: Option<u32>,
 }
 
 /// The words for a template's slots: {name}, {noun}, {a_noun}, {nouns},
@@ -175,6 +182,8 @@ impl<'a> Raven<'a> {
             turn: 0,
             expect: None,
             referent: None,
+            low_since: None,
+            last_topic: None,
         })
     }
 
@@ -211,7 +220,7 @@ impl<'a> Raven<'a> {
     }
 
     fn verb_slots(&self, v: u32, s: Slots) -> Slots {
-        let s = s.set("verb", self.net.node(v).text.clone()).set("noun", self.net.node(v).text.clone());
+        let s = s.set("verb", self.net.node(v).text.clone()).set("noun", self.net.node(v).text.clone()).about(v);
         match self.net.form(v, Form::Ing) {
             Some(g) => s.set("verbing", g.text.clone()).set("nouns", g.text.clone()),
             None => s,
@@ -336,6 +345,7 @@ impl<'a> Raven<'a> {
         let (turns, all) = turn::read(self.net, text, &cx);
         let asked_for = self.expect.take();
         let mut ctx = TurnCtx::default();
+        ctx.low = self.low_since.map(|t| self.turn - t <= self.cfg.raven.judges.low_turns).unwrap_or(false);
         let (mut openers, mut bodies, mut questions): (Vec<Part>, Vec<Part>, Vec<Part>) = (Vec::new(), Vec::new(), Vec::new());
         let q = |p: &mut Part| p.question = true;
 
@@ -447,9 +457,37 @@ impl<'a> Raven<'a> {
                     if tone < 0.0 {
                         openers.extend(self.parts("heard_bad", &s, |p| p.feel = -1.0));
                         questions.extend(self.parts("q_bad", &s, q));
+                    } else if ctx.low {
+                        let s = match self.person.mood {
+                            Some((a, _)) => s.set("adj", self.net.node(a).text.clone()),
+                            None => s,
+                        };
+                        openers.extend(self.parts("heard", &s, |p| p.feel = -1.0));
+                        questions.extend(self.parts("q_tell_more", &s, q));
                     } else {
                         openers.extend(self.parts("heard", &s, |p| p.feel = if ctx.valence < 0.0 { -1.0 } else { tone }));
                     }
+                }
+                Turn::Often(often) => {
+                    let s = match asked_for {
+                        Some(Expect::Often(v)) => self.verb_slots(v, b.clone()),
+                        _ => b.clone(),
+                    }
+                    .set("often", often);
+                    openers.extend(self.parts("often", &s, |p| p.memory = true));
+                }
+                Turn::Repair => {
+                    // what Raven said made no sense: say so, and go back to them
+                    let s = match self.last_topic {
+                        Some(tp) => self.noun_slots(tp, b.clone()),
+                        None => b.clone(),
+                    };
+                    openers.extend(self.parts("repair", &s, |_| {}));
+                    let s2 = match self.person.mood {
+                        Some((a, v)) if v < 0.0 => b.clone().set("adj", self.net.node(a).text.clone()),
+                        _ => b.clone(),
+                    };
+                    questions.extend(self.parts(if ctx.low { "q_tell" } else { "q_open" }, &s2, q));
                 }
                 Turn::Nothing => {
                     openers.extend(self.parts("nothing", &b, |_| {}));
@@ -476,6 +514,13 @@ impl<'a> Raven<'a> {
                     ctx.feel(v);
                     let s = b.clone().set("adj", self.net.node(a).text.clone());
                     let mild = self.cfg.raven.feeling.mild_adjectives.iter().any(|m| self.net.base(m, Pos::Adj) == Some(a));
+                    // a bad feeling is the thread of the conversation for a while; a good one ends it
+                    if v < 0.0 && !mild {
+                        self.low_since = Some(self.turn);
+                    } else if v > 0.0 && !mild {
+                        self.low_since = None;
+                        ctx.low = false;
+                    }
                     let (open, ask) = if mild {
                         ("empathy_mild", "q_mild")
                     } else if v < 0.0 {
@@ -524,10 +569,19 @@ impl<'a> Raven<'a> {
                     }));
                 }
                 Turn::LikeDoing(v) => {
-                    let s = self.verb_slots(v, b.clone());
+                    let mut s = self.verb_slots(v, b.clone());
                     openers.extend(self.parts("like_doing", &s, |p| p.mentions.push(v)));
-                    questions.extend(self.parts("q_like_doing", &s, |p| {
+                    // while they are low, what they like is asked about with how they feel
+                    let low = match (ctx.low, self.person.mood) {
+                        (true, Some((a, _))) => {
+                            s = s.set("adj", self.net.node(a).text.clone());
+                            true
+                        }
+                        _ => false,
+                    };
+                    questions.extend(self.parts(if low { "q_like_doing_low" } else { "q_like_doing" }, &s, |p| {
                         p.question = true;
+                        p.feel = if low { -1.0 } else { 0.0 };
                         p.mentions.push(v);
                     }));
                     ctx.nouns.push(v);
@@ -659,9 +713,16 @@ impl<'a> Raven<'a> {
                         openers.extend(self.parts("have", &s, |p| p.mentions.push(x)));
                         questions.extend(self.parts(if self.net.node(x).animate { "q_have_animal" } else { "q_have" }, &s, q));
                     }
-                    Some(Expect::WantTalk) => {
-                        openers.extend(self.parts("listening", &b, |p| p.feel = -1.0));
-                        questions.extend(self.parts("q_tell", &b, q));
+                    // "yes, I want to": while they are low, to anything open, it means "listen"
+                    Some(Expect::WantTalk) | Some(Expect::Story) | Some(Expect::Feeling)
+                        if ctx.low || asked_for == Some(Expect::WantTalk) =>
+                    {
+                        let s = match self.person.mood {
+                            Some((a, v)) if v < 0.0 => b.clone().set("adj", self.net.node(a).text.clone()),
+                            _ => b.clone(),
+                        };
+                        openers.extend(self.parts("listening", &s, |p| p.feel = -1.0));
+                        questions.extend(self.parts("q_tell", &s, q));
                         ctx.feel(-1.0);
                     }
                     _ => openers.extend(self.parts("yes", &b, |_| {})),
@@ -696,6 +757,13 @@ impl<'a> Raven<'a> {
             }
         }
         // something to go on with when the turn gives nothing to ask about
+        // a question that would fit anyone ("what have you been up to?") is generic
+        let anyone: Vec<String> = ["q_mild", "q_good_plain", "q_open"].iter().flat_map(|k| self.say(k).iter().cloned()).collect();
+        for p in questions.iter_mut() {
+            if anyone.contains(&p.text) {
+                p.generic = true;
+            }
+        }
         if questions.is_empty() && !ctx.closing {
             let b = self.base();
             questions.extend(self.parts("q_open", &b, |p| {
@@ -751,6 +819,7 @@ impl<'a> Raven<'a> {
             self.hist.said.push(p.text.clone());
         }
         self.expect = parts.iter().find_map(|p| p.expect);
+        self.last_topic = parts.iter().flat_map(|p| p.mentions.iter()).next().copied().or(self.chat.topic());
         self.hist.first.push(parts[0].text.clone());
         self.hist.asked.push(parts.iter().any(|p| p.question));
         self.hist.name_used.push(parts.iter().any(|p| p.name));
@@ -763,6 +832,7 @@ fn expect_for(key: &str, text: &str, noun: Option<u32>) -> Option<Expect> {
     let with = |f: fn(u32) -> Expect| noun.map(f);
     Some(match key {
         "q_ask_name" => Expect::Name,
+        "q_like_doing" if text.contains("How often") => return with(Expect::Often),
         "q_bad" if text.contains("talk about it") => Expect::WantTalk,
         "q_loss" if text.contains(" like?") => return with(Expect::Describe),
         "q_loss" => Expect::WantTalk,

@@ -11,6 +11,9 @@
 //!                    their name now and then (not every time)
 //!   keeps going      it asks back, but does not interrogate (a fourth
 //!                    question in a row)
+//!   stays with them  while they are low (a bad feeling told a short while
+//!                    ago), no cheerful question that would fit anyone and no
+//!                    fact: the conversation stays on them
 //!   natural          nothing said twice, not the same opening as last time,
 //!                    not too long
 
@@ -88,6 +91,19 @@ pub fn score(parts: &[&Part], ctx: &TurnCtx, hist: &History, w: &RavenJudges) ->
     }
     if ctx.closing && asks > 0 {
         s += w.interrogation;
+    }
+    // stays with them while they are low
+    if ctx.low {
+        if has(&|p| p.generic) {
+            s += w.off_thread;
+        }
+        if has(&|p| p.fact) {
+            s += w.facts_in_pain;
+        }
+        if has(&|p| p.feel < 0.0) {
+            s += w.stays;
+            why.push("stays with how you feel");
+        }
     }
     // natural
     for p in parts {

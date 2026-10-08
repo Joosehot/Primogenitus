@@ -109,3 +109,29 @@ fn the_conversation_that_went_wrong() {
     let r = talk("i meant you");
     assert!(r.contains("Primogenitus") || r.contains("program"), "{r}");
 }
+
+/// The second conversation as it really went (2026-10-08): the thread kept.
+#[test]
+fn the_thread_is_kept() {
+    let Some((net, cfg)) = setup() else { return };
+    let mut raven = Raven::new(&net, &cfg).unwrap();
+    raven.greeting();
+    let mut talk = |q: &str| {
+        let r = raven.reply(q).text;
+        println!("You: {q}\nPrimogenitus: {r}");
+        assert!(!r.contains("did not"), "not followed: {q} -> {r}");
+        r
+    };
+    talk("I'm Joose");
+    let r = talk("I'm feeling a little sad.");
+    assert!(r.contains("sorry") || r.contains("hard") || r.contains("hear"), "{r}");
+    let r = talk("Yes I want to.");
+    assert!(r.contains("listening") || r.contains("Take your time"), "\"yes, I want to talk\" not heard: {r}");
+    assert!(!r.contains("about yourself"), "{r}");
+    let r = talk("I am a 22-year old male human and I like to code");
+    assert!(r.contains("cod") || r.contains("feel"), "{r}");
+    let r = talk("Every day");
+    assert!(!r.contains("Dull"), "an answer taken for a new topic: {r}");
+    let r = talk("What do you mean by that?");
+    assert!(r.contains("Sorry"), "{r}");
+}

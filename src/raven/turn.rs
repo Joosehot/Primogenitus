@@ -21,6 +21,9 @@
 //!   nothing / not much                       nothing to tell
 //!   you are ADJ / you are not NP / do you know that you ...   about Raven
 //!   I made you / your creator                who made it
+//!   I am feeling / I have been feeling ADJ   a feeling
+//!   yes, I want to / no, not now             yes and no, in a few more words
+//!   what do you mean / huh / that makes no sense    a repair: Raven said something wrong
 //!
 //! And in the light of what Raven asked last (Expect): after "what is your
 //! name?" a bare "Joose" is a name; after "how are you?" a bare "good" or
@@ -48,6 +51,8 @@ pub enum Expect {
     Story,
     /// "what would you like to talk about?"
     Topic,
+    /// "how often do you code?": the verb
+    Often(u32),
 }
 
 /// What the turn is read in the light of.
@@ -69,6 +74,10 @@ pub enum Turn {
     PetNamed { noun: u32, name: String },
     /// a story Raven asked for but cannot read: heard
     Heard,
+    /// an answer to "how often do you ...?": as said ("every day")
+    Often(String),
+    /// "what do you mean?": what Raven said did not make sense
+    Repair,
     /// "nothing really", "not much"
     Nothing,
     /// "you are smart", "you are not an AI": something said about Raven (the
@@ -240,7 +249,31 @@ fn clause(net: &Network, w: &[String], o: &[String], cx: &Context) -> Option<Tur
         ["nothing"] | ["nothing", "much"] | ["not", "much"] | ["not", "a", "lot"] | ["nothing", "special"] | ["the", "usual"] => {
             return Some(Nothing)
         }
+        ["what", "do", "you", "mean", ..] | ["what", "does", "that", "mean"] | ["huh"] | ["what"] | ["that", "makes", "no", "sense"]
+        | ["what", "are", "you", "talking", "about"] | ["i", "do", "not", "understand"] | ["that", "is", "weird" | "strange" | "odd"]
+        | ["what", "is", "that", "supposed", "to", "mean"] | ["excuse", "me"] => return Some(Repair),
         _ => {}
+    }
+    // "yes, I want to", "yeah I do", "no, not now", "I would rather not"
+    const YES_TAIL: &[&[&str]] = &[&["i", "want", "to"], &["i", "do"], &["i", "would"], &["i", "would", "like", "to"], &["please"],
+                                   &["of", "course"], &["let", "us"], &["lets"], &["i", "guess"], &["sure"]];
+    const NO_TAIL: &[&[&str]] = &[&["i", "do", "not"], &["not", "now"], &["not", "really"], &["thanks"], &["thank", "you"],
+                                  &["i", "would", "rather", "not"], &["maybe", "later"]];
+    let tail_in = |k: usize, list: &[&[&str]]| list.iter().any(|t| s[k..].iter().copied().eq(t.iter().copied()));
+    match s[0] {
+        "yes" | "yeah" | "yep" | "sure" | "ok" | "okay" if n > 1 && tail_in(1, YES_TAIL) => return Some(Yes),
+        "no" | "nope" | "nah" if n > 1 && tail_in(1, NO_TAIL) => return Some(No),
+        _ if tail_in(0, &[&["i", "want", "to"], &["i", "would", "like", "to"], &["i", "do"]]) => return Some(Yes),
+        _ if tail_in(0, &[&["i", "would", "rather", "not"], &["not", "now"], &["maybe", "later"]]) => return Some(No),
+        _ => {}
+    }
+    // a feeling: "i am feeling a little sad", "i have been feeling down"
+    for p in [&["i", "am", "feeling"][..], &["i", "have", "been", "feeling"][..], &["i", "have", "been"][..], &["feeling"][..]] {
+        if s.starts_with(p) {
+            if let Some(a) = adj_at(net, w, p.len(), n) {
+                return Some(Feel(a));
+            }
+        }
     }
     // who made Raven: "I made you", "I am your creator", "your original creator"
     let creator_word = |x: &str| matches!(x, "creator" | "maker" | "author" | "father" | "mother" | "parent" | "developer" | "inventor" | "programmer");
@@ -442,6 +475,16 @@ fn answer(net: &Network, text: &str, cx: &Context) -> Option<Vec<Turn>> {
             }
             Some(out)
         }
+        Expect::Often(_) => {
+            // "every day", "daily", "twice a week", "sometimes"
+            const OFTEN: &[&str] = &["every", "each", "day", "daily", "week", "weekly", "month", "monthly", "year", "night", "morning",
+                                     "evening", "weekend", "weekends", "sometimes", "often", "always", "never", "rarely", "usually",
+                                     "once", "twice", "a", "an", "times", "few", "lot", "all", "the", "time", "most", "days", "nights",
+                                     "now", "and", "then", "almost", "pretty", "much", "hour", "hours", "two", "three"];
+            w.iter()
+                .all(|x| OFTEN.contains(&x.as_str()) || x.chars().all(|c| c.is_ascii_digit()))
+                .then(|| vec![Turn::Often(o.join(" ").to_lowercase())])
+        }
         Expect::Age(noun) => {
             // "3", "three years", "2 years old", "six months"
             const NUMS: &[&str] = &["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
@@ -473,6 +516,14 @@ pub fn read(net: &Network, text: &str, cx: &Context) -> (Vec<Turn>, bool) {
         }
     }
     let q = question::read(net, text);
+    // a bare noun phrase after Raven asked something ("every day") is an
+    // answer to it, not a new thing to talk about
+    let bare = matches!(q, Question::Ask { intent: question::Intent::About, .. })
+        && !text.trim_end().ends_with('?')
+        && !words(text).0.first().map(|w| matches!(w.as_str(), "tell" | "what" | "and")).unwrap_or(false);
+    if bare && !matches!(cx.expect, None | Some(Expect::Topic)) {
+        return (vec![Turn::Heard], true);
+    }
     if !matches!(q, Question::Unknown(_)) {
         return (vec![Turn::Ask(q)], true);
     }
