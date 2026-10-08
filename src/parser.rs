@@ -57,6 +57,10 @@ fn chunk_head(net: &Network, t: &[String], mut i: usize) -> Option<u32> {
     }
     let mut head = None;
     while i < t.len() && lexicon::closed(&t[i]).is_none() {
+        // "a kind of fish": the fish is meant
+        if lexicon::partitive(&t[i]) && t.get(i + 1).map(|w| w == "of").unwrap_or(false) {
+            return chunk_head(net, t, i + 2);
+        }
         let n = nouns(net, &t[i]);
         if let Some(&h) = n.first() {
             head = Some(h);

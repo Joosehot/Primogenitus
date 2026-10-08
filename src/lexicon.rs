@@ -35,6 +35,13 @@ pub fn closed(w: &str) -> Option<Closed> {
     })
 }
 
+/// Nouns that only measure out another ("a kind of fish", "a lot of
+/// water"): the noun after "of" is the one meant.
+pub fn partitive(w: &str) -> bool {
+    matches!(w, "kind" | "kinds" | "sort" | "sorts" | "type" | "types" | "lot" | "lots" | "piece" | "pieces" | "number"
+        | "bit" | "bits" | "group" | "couple" | "variety" | "pair" | "set" | "amount" | "deal" | "plenty" | "bunch" | "handful")
+}
+
 /// "an" before a vowel sound, "a" before a consonant sound: the longest
 /// matching beginning in rules.toml decides; nothing matching means "a".
 pub fn article(word: &str, rules: &Article) -> &'static str {

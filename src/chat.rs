@@ -96,6 +96,9 @@ impl<'a> Chat<'a> {
             Question::Unknown(why) => Reply::plain(why),
             Question::WhoAreYou => Reply::plain(c.who_am_i.clone()),
             Question::HowAreYou => Reply::plain(c.how_am_i.clone()),
+            Question::YouCan(v) => Reply::plain(self.me_word(v, &self.cfg.me.can, Pos::Verb).unwrap_or_else(|| self.cfg.me.cannot.clone())),
+            Question::YouAreAdj(a) => Reply::plain(self.me_word(a, &self.cfg.me.is, Pos::Adj).unwrap_or_else(|| self.cfg.me.unknown_adj.clone())),
+            Question::YouAre(k) => self.you_are(k),
             Question::Cannot(w) => Reply::plain(c.cannot.replace("{word}", &w).replace(
                 "{what}",
                 match w.as_str() {
@@ -242,6 +245,41 @@ impl<'a> Chat<'a> {
             }
             (false, None) => Reply::plain("Not that I know: no line in my network says so."),
         }
+    }
+
+    /// What Primo says about itself for this verb or adjective: the word
+    /// itself, or a word of the same meaning (speak for talk), in rules.toml.
+    fn me_word(&self, w: u32, table: &std::collections::BTreeMap<String, String>, pos: Pos) -> Option<String> {
+        let keys: Vec<(u32, &String)> = table.iter().filter_map(|(k, r)| self.net.base(k, pos).map(|id| (id, r))).collect();
+        if let Some((_, r)) = keys.iter().find(|(k, _)| *k == w) {
+            return Some((*r).clone());
+        }
+        // a synonym in a sense that is the most common for one of the two and
+        // common for both ("speak" for "talk"; not "see" for "learn", which
+        // share only a rare sense)
+        let common = |l: &crate::network::Line| l.rank.min(l.to_rank) == 0 && l.rank.max(l.to_rank) <= 2;
+        keys.iter()
+            .find(|(k, _)| self.net.lines[w as usize].iter().any(|l| l.kind == Kind::Synonym && l.to == *k && common(l)))
+            .map(|(_, r)| (*r).clone())
+    }
+
+    /// "Are you a program?": yes when the noun is one of Primo's kinds or a
+    /// kind of them up the is-a lines (a program is software).
+    fn you_are(&self, noun: u32) -> Reply {
+        for key in &self.cfg.me.kinds {
+            let Some(k) = self.net.base(key, Pos::Noun) else { continue };
+            if let Some(path) = if k == noun { Some(vec![k]) } else { kind_path(self.net, k, noun) } {
+                let word = &self.net.node(noun).text;
+                let why = vec![path.iter().map(|&x| self.net.node(x).text.clone()).collect::<Vec<_>>().join(" -is a-> ")];
+                let named = if self.net.node(noun).mass {
+                    word.clone()
+                } else {
+                    format!("{} {word}", crate::lexicon::article(word, &self.cfg.article))
+                };
+                return Reply { text: format!("Yes. I am {named}."), why };
+            }
+        }
+        Reply::plain(self.cfg.me.not_kind.clone())
     }
 
     /// "What do dogs eat?": the topic (or its kind) does the verb in the

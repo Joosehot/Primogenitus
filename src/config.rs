@@ -15,6 +15,19 @@ pub struct Config {
     pub patterns: Patterns,
     pub article: Article,
     pub chat: Chat,
+    pub me: Me,
+}
+
+/// What Primo knows about itself.
+#[derive(Deserialize, Debug, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct Me {
+    pub kinds: Vec<String>,
+    pub not_kind: String,
+    pub cannot: String,
+    pub unknown_adj: String,
+    pub can: std::collections::BTreeMap<String, String>,
+    pub is: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]

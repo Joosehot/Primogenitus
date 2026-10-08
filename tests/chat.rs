@@ -21,7 +21,8 @@ fn setup() -> Option<(Network, Config)> {
 fn world(reply: &str) -> Option<&str> {
     let r = reply.strip_prefix("Yes. ").unwrap_or(reply);
     let framing = ["Not that I know", "That is all", "I know of nothing", "I do not know", "I could not", "Who or what",
-                   "Hello", "Goodbye", "You are welcome", "Ask me", "I know the word"];
+                   "Hello", "Goodbye", "You are welcome", "Ask me", "I know the word", "No. ", "Yes, ", "Yes. I am",
+                   "I cannot", "I am", "Not as you do", "I have no", "I can tell"];
     (!framing.iter().any(|f| r.starts_with(f))).then_some(r)
 }
 
@@ -66,5 +67,14 @@ fn a_conversation() {
     }
     assert!(ended, "\"what else\" never ran out");
     assert!(ask("What is a blorft?").starts_with("I do not know the word"));
+    // about itself
+    assert!(ask("Can you talk?").starts_with("Yes"));
+    assert!(ask("Can you speak English?").starts_with("Yes"));
+    assert!(ask("Do you learn?").starts_with("No. I am frozen"));
+    assert!(ask("Are you a robot?").starts_with("No"));
+    assert!(ask("Are you a program?").starts_with("Yes"));
+    assert!(ask("Are you alive?").starts_with("No"));
+    assert!(ask("Are you software?").starts_with("Yes"));
+    assert!(ask("Can you think?").starts_with("Not as you do"));
     assert!(ask("What is a dog doing in the garden?").starts_with("I could not"));
 }

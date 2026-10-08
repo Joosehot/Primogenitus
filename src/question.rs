@@ -24,6 +24,9 @@
 //!   how ADJ is NP                            how it is, by the same measure (how big is a whale)
 //!   who is NP                                as "what is"
 //!   who are you / what is your name / how are you    about the bot
+//!   can you VERB [...] / do you VERB [...]   what the bot can do  (can you talk)
+//!   are you NP / are you ADJ                 what the bot is      (are you a robot)
+//!   do you know [about] NP                   as "tell me about"
 //!   where / when / why / how ...             said plainly: no lines for places, times, reasons, ways
 //!
 //! NP is a noun phrase (a/an/the/some, a noun of one or more words, singular
@@ -75,6 +78,12 @@ pub enum Question {
     WhoAreYou,
     /// how are you
     HowAreYou,
+    /// can you VERB, do you VERB
+    YouCan(u32),
+    /// are you NP
+    YouAre(u32),
+    /// are you ADJ
+    YouAreAdj(u32),
     /// where, when, why, how ...: the word asked
     Cannot(String),
     IsA { topic: Subject, kind: u32 },
@@ -188,6 +197,35 @@ pub fn read(net: &Network, text: &str) -> Question {
             if let Some(topic) = whole(prefix.len(), n) {
                 return Ask { topic, intent, more: false };
             }
+        }
+    }
+    // about the bot: "can you talk", "can you speak english", "do you learn"
+    if matches!(s.first(), Some(&"can") | Some(&"could") | Some(&"do")) && s.get(1) == Some(&"you") && n >= 3 {
+        if s[2] == "know" {
+            let k = if s.get(3) == Some(&"about") { 4 } else { 3 };
+            if let Some(topic) = whole(k, n) {
+                return Ask { topic, intent: Intent::About, more: false };
+            }
+        }
+        if let Some(v) = verb(net, &t[2]) {
+            let rest = &s[3..];
+            let tail_ok = rest.is_empty()
+                || matches!(rest, ["to", "me"] | ["with", "me"] | ["me"] | ["english"] | ["well"] | ["anything"] | ["things"])
+                || whole(3, n).is_some();
+            if tail_ok {
+                return YouCan(v);
+            }
+        }
+    }
+    // "are you a robot", "are you alive"
+    if s.first() == Some(&"are") && s.get(1) == Some(&"you") && n >= 3 {
+        if n == 3 {
+            if let Some(a) = adjective(net, &t[2]) {
+                return YouAreAdj(a);
+            }
+        }
+        if let Some(Subject::Noun(k)) = whole(2, n) {
+            return YouAre(k);
         }
     }
     // "who is NP": what it is
@@ -327,7 +365,7 @@ fn why_not(net: &Network, t: &[String]) -> String {
     for w in t {
         if lexicon::closed(w).is_none()
             && net.lookup(w).is_empty()
-            && !matches!(w.as_str(), "what" | "else" | "tell" | "describe" | "which" | "how" | "why" | "your")
+            && !matches!(w.as_str(), "what" | "else" | "tell" | "describe" | "which" | "how" | "why" | "your" | "you")
         {
             return format!("I do not know the word \"{w}\" (did you mean \"{}\"?).", parser::closest(net, w));
         }

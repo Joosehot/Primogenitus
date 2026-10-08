@@ -6,7 +6,7 @@ semantic_targets = 3        # a sense-to-sense line reaches this many words of t
 frame_senses = 2            # a verb's sentence frames come from its most common senses only
 # WordNet's lexicographer files whose nouns may be uncountable ("bread",
 # "loot", "anger"): countability cannot be known, so only "the X" is said
-mass_lexfiles = [7, 9, 12, 13, 19, 21, 22, 26, 27]
+mass_lexfiles = [7, 9, 10, 12, 13, 19, 21, 22, 26, 27]
 # ... unless the dictionary's own texts count it: "an apple" standing alone (not
 # "a water bird") this many times makes a noun countable
 count_evidence = 3
@@ -88,3 +88,37 @@ nothing_yet = "Ask me something first."
 who_am_i = "I am Primo. I make sentences from a frozen network of words built from a dictionary. Nothing in me was trained, and I say only what a line in my network says."
 how_am_i = "I am well, thank you. Ask me about something."
 cannot = "I cannot answer \"{word}\" questions yet: my network knows what things are, what they do, what they have and what they are like, but it has no lines for {what}."
+
+# What Primo knows about itself ("you" in a question). A verb or an adjective
+# asked is matched to these through the network (speak is talk's synonym).
+[me]
+kinds = ["computer program"]
+not_kind = "No. I am Primo, a program that makes sentences from a frozen network of words."
+cannot = "No. I can only read questions and answer them from my word network."
+unknown_adj = "I cannot say that about myself. I am a program that makes sentences from a frozen network of words."
+
+[me.can]
+talk = "Yes, in my own way: I answer questions in sentences made from my word network, and every sentence I say about the world is checked against my grammar."
+chat = "Yes, in my own way: I answer questions in sentences made from my word network, and every sentence I say about the world is checked against my grammar."
+answer = "Yes. Ask me what a thing is, what it does, what it has or what it is like."
+read = "Yes. I read your question word by word, and I say so when I cannot read all of it."
+remember = "Yes, within our conversation: what we talked about last, and what I have said already."
+help = "I can tell you what things are, what they do, what they have and what they are like. Try: what animals have wings?"
+learn = "No. I am frozen: nothing in me is trained, and my network does not change after it is built."
+think = "Not as you do. I follow lines between words and rules of grammar, and I say only what a line says."
+lie = "No. I say only what a line in my network says, and \"not that I know\" when no line says it."
+see = "No. I have only words."
+hear = "No. I have only words."
+feel = "No. I have only words."
+write = "Yes, sentences: every one built from my word network and checked against my grammar."
+count = "No. I know words, not numbers."
+
+[me.is]
+alive = "No. I am a program that makes sentences from a frozen network of words."
+human = "No. I am a program that makes sentences from a frozen network of words."
+real = "I am a real program, running on this machine."
+smart = "I know what my word network knows: a great many words and the lines between them, and nothing more."
+intelligent = "I know what my word network knows: a great many words and the lines between them, and nothing more."
+trained = "No. Nothing in me is trained: my network was built once from a dictionary and frozen."
+happy = "I have no feelings. I have only words."
+sad = "I have no feelings. I have only words."
