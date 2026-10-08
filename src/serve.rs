@@ -58,7 +58,7 @@ fn respond(stream: &mut TcpStream, status: &str, kind: &str, body: &str) -> Resu
 
 pub fn serve(net: &Network, cfg: &Config, port: u16) -> Result<()> {
     let listener = TcpListener::bind(("127.0.0.1", port))?;
-    println!("Primo is listening: http://127.0.0.1:{port}/  (ctrl+c to stop)");
+    println!("Primogenitus is listening: http://127.0.0.1:{port}/  (ctrl+c to stop)");
     let mut chat = Raven::new(net, cfg)?;
     for stream in listener.incoming() {
         let Ok(mut stream) = stream else { continue };

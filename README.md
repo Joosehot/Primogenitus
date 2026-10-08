@@ -1,5 +1,7 @@
 # Primogenitus
 
+The bot calls itself Primogenitus, Primo for short.
+
 A motor that produces sentences. A frozen word network is built once from a
 downloaded dictionary, and sentences come from the HotMotor pipeline. Nothing
 is trained and nothing updates.
@@ -29,15 +31,15 @@ the world; Raven decides how to say it to a person.
 
 ```
 You: Hi, my name is Joose
-Primo: Hello, Joose. It is good to meet you. How are you today?
+Primogenitus: Hello, Joose. It is good to meet you. How are you today?
 You: My dog died
-Primo: That is very sad. I am sorry, Joose. What was your dog like?
+Primogenitus: That is very sad. I am sorry, Joose. What was your dog like?
 You: Her name was Musti
-Primo: You must miss Musti. What do you remember most about Musti?
+Primogenitus: You must miss Musti. What do you remember most about Musti?
 You: I have a cat too
-Primo: Oh, you have a cat, Joose. What is your cat like?
+Primogenitus: Oh, you have a cat, Joose. What is your cat like?
 You: Is a cat an animal?
-Primo: Yes. Cats are animals. Is that true of your cat too?
+Primogenitus: Yes. Cats are animals. Is that true of your cat too?
 ```
 
 - `raven/turn.rs` reads a turn whole, clause by clause: questions go to
@@ -67,17 +69,17 @@ Primo: Yes. Cats are animals. Is that true of your cat too?
 
 ```
 $ primogenitus chat
-Primo: Hello. Ask me about a thing, an animal or a person: ...
+Primogenitus: Hello. Ask me about a thing, an animal or a person: ...
 You: Is a dog an animal?
-Primo: Yes. Dogs are animals.
+Primogenitus: Yes. Dogs are animals.
 You: Does it have a tail?
-Primo: Yes. Dogs have tails.
+Primogenitus: Yes. Dogs have tails.
 You: What does a dog do?
-Primo: Dogs snatch a bone.
+Primogenitus: Dogs snatch a bone.
 You: What else?
-Primo: Dogs lick a hand.
+Primogenitus: Dogs lick a hand.
 You: Is a whale a fish?
-Primo: Not that I know: no line in my network says that whales are fishes.
+Primogenitus: Not that I know: no line in my network says that whales are fishes.
 ```
 
 `primogenitus ask "question"` answers one question; `--explain` shows the

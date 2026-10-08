@@ -23,7 +23,7 @@ fn a_humane_conversation() {
     let mut said: Vec<String> = Vec::new();
     let mut talk = |q: &str| {
         let r = raven.reply(q).text;
-        println!("You: {q}\nPrimo: {r}");
+        println!("You: {q}\nPrimogenitus: {r}");
         said.push(r.clone());
         r
     };

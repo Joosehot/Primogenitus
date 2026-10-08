@@ -85,7 +85,7 @@ thanks = "You are welcome."
 help = "Ask me: what is a dog, what does a dog do, what does a dog have, what is a dog like, is a dog an animal, does a dog have a tail, can dogs swim. Say \"what else\" for more, and \"it\" or \"they\" for what we talked about."
 no_pronoun = "Who or what do you mean? We have not talked about anything yet."
 nothing_yet = "Ask me something first."
-who_am_i = "I am Primo. I make sentences from a frozen network of words built from a dictionary. Nothing in me was trained, and I say only what a line in my network says."
+who_am_i = "I am Primogenitus, Primo for short. I make sentences from a frozen network of words built from a dictionary. Nothing in me was trained, and I say only what a line in my network says."
 how_am_i = "I am well, thank you. Ask me about something."
 cannot = "I cannot answer \"{word}\" questions yet: my network knows what things are, what they do, what they have and what they are like, but it has no lines for {what}."
 
@@ -93,7 +93,7 @@ cannot = "I cannot answer \"{word}\" questions yet: my network knows what things
 # asked is matched to these through the network (speak is talk's synonym).
 [me]
 kinds = ["computer program"]
-not_kind = "No. I am Primo, a program that makes sentences from a frozen network of words."
+not_kind = "No. I am Primogenitus, a program that makes sentences from a frozen network of words."
 cannot = "No. I can only read questions and answer them from my word network."
 unknown_adj = "I cannot say that about myself. I am a program that makes sentences from a frozen network of words."
 
@@ -126,7 +126,7 @@ happy = "I have no feelings. I have only words."
 sad = "I have no feelings. I have only words."
 
 [me.has]
-name = "Yes. My name is Primo."
+name = "Yes. My name is Primogenitus, but you can call me Primo."
 memory = "Yes, for our conversation: what we talked about last, and what I have said already."
 brain = "No. I have a network of words, built once from a dictionary and frozen."
 body = "No. I have only words."
@@ -138,7 +138,7 @@ feeling = "No. I have only words."
 # the bodies. Slots: {name} {noun} {a_noun} {nouns} {adj} {verb} {verbing}
 # {that} {what} {kinds}; a template whose slot has no word is not used.
 [raven.say]
-greeting = ["Hello. I am Primo. What is your name?", "Hello.", "Hi there."]
+greeting = ["Hello. I am Primogenitus, Primo for short. What is your name?", "Hello.", "Hi there."]
 goodbye = ["Goodbye. It was nice talking with you.", "Goodbye, {name}. Take care.", "Bye for now."]
 thanks = ["You are welcome.", "You are welcome, {name}.", "Any time."]
 nice_to_meet = ["Nice to meet you, {name}.", "Hello, {name}. It is good to meet you."]

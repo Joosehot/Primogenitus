@@ -33,7 +33,7 @@ fn a_conversation() {
     let mut said = Vec::new();
     let mut ask = |q: &str| {
         let r = chat.reply(q).text;
-        println!("You: {q}\nPrimo: {r}");
+        println!("You: {q}\nPrimogenitus: {r}");
         if let Some(s) = world(&r) {
             assert!(primogenitus::parser::check(&net, &cfg, s).is_ok(), "\"{s}\" fails the check");
         }
@@ -73,7 +73,7 @@ fn a_conversation() {
     assert!(ask("Can you have a conversation with me?").starts_with("Yes"));
     assert!(ask("Will you talk to me about dogs?").starts_with("Yes"));
     assert!(ask("Do you like dogs?").starts_with("I have no likes"));
-    assert!(ask("Do you have a name?").starts_with("Yes. My name is Primo"));
+    assert!(ask("Do you have a name?").starts_with("Yes. My name is Primogenitus"));
     assert!(ask("Do you learn?").starts_with("No. I am frozen"));
     assert!(ask("Are you a robot?").starts_with("No"));
     assert!(ask("Are you a program?").starts_with("Yes"));

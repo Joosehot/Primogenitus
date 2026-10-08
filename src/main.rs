@@ -70,7 +70,7 @@ fn main() -> Result<()> {
         let mut answer = |q: &str| {
             let t = Instant::now();
             let r = if is_ask { chat.reply(q) } else { raven.reply(q) };
-            println!("Primo: {}", r.text);
+            println!("Primogenitus: {}", r.text);
             if explain {
                 for w in &r.why {
                     println!("       line: {w}");
@@ -82,7 +82,7 @@ fn main() -> Result<()> {
             answer(&args[1..].join(" "));
             return Ok(());
         }
-        println!("Primo: {}", cfg.raven.say["greeting"][0]);
+        println!("Primogenitus: {}", cfg.raven.say["greeting"][0]);
         let stdin = std::io::stdin();
         let mut line = String::new();
         loop {

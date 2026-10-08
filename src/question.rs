@@ -202,7 +202,8 @@ pub fn read(net: &Network, text: &str) -> Question {
         ["help"] | ["what", "can", "you", "do"] | ["what", "can", "i", "ask"] | ["what", "can", "i", "ask", "you"] => return Help,
         ["what", "else"] | ["anything", "else"] | ["more"] | ["tell", "me", "more"] => return More,
         ["who", "are", "you"] | ["what", "are", "you"] | ["what", "is", "your", "name"] | ["who", "is", "primo"]
-        | ["what", "is", "primo"] => return WhoAreYou,
+        | ["what", "is", "primo"] | ["who", "is", "primogenitus"] | ["what", "is", "primogenitus"]
+        | ["what", "is", "your", "full", "name"] => return WhoAreYou,
         ["how", "are", "you"] | ["how", "are", "you", "doing"] | ["how", "is", "it", "going"] => return HowAreYou,
         _ => {}
     }
