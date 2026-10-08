@@ -27,6 +27,10 @@
 //!   can/do/will you VERB [NP] [PREP NP]...   what the bot can do  (can you have a conversation with me)
 //!   are you NP / are you ADJ                 what the bot is      (are you a robot)
 //!   do you know [about] NP                   as "tell me about"
+//!   do you know / can you tell me what ...   the question inside, read whole
+//!                                            (what's AI; what AI is)
+//!   tell me about yourself / what about you / i meant you      about the bot
+//!   and you / how about you                  how the bot is
 //!   where / when / why / how ...             said plainly: no lines for places, times, reasons, ways
 //!
 //! NP is a noun phrase (a/an/the/some, a noun of one or more words, singular
@@ -204,8 +208,58 @@ pub fn read(net: &Network, text: &str) -> Question {
         ["who", "are", "you"] | ["what", "are", "you"] | ["what", "is", "your", "name"] | ["who", "is", "primo"]
         | ["what", "is", "primo"] | ["who", "is", "primogenitus"] | ["what", "is", "primogenitus"]
         | ["what", "is", "your", "full", "name"] => return WhoAreYou,
-        ["how", "are", "you"] | ["how", "are", "you", "doing"] | ["how", "is", "it", "going"] => return HowAreYou,
+        ["how", "are", "you"] | ["how", "are", "you", "doing"] | ["how", "is", "it", "going"] | ["and", "you"]
+        | ["how", "about", "you"] | ["what", "about", "yourself"] => return HowAreYou,
+        ["what", "about", "you"] | ["about", "you"] | ["you"] | ["i", "meant" | "mean", "you"] | ["i", "was", "asking", "about", "you"]
+        | ["describe", "yourself"] | ["introduce", "yourself"] => return WhoAreYou,
         _ => {}
+    }
+    // "can you tell me something about yourself": only polite words around "yourself"
+    if s.last() == Some(&"yourself")
+        && s.iter().all(|w| matches!(*w, "can" | "could" | "would" | "will" | "you" | "tell" | "me" | "something" | "more" | "a"
+            | "little" | "bit" | "about" | "yourself" | "please" | "describe" | "introduce" | "talk"))
+    {
+        return WhoAreYou;
+    }
+    // "do you know what's AI", "can you tell me what a dog is": the question inside
+    let n = t.len();
+    let inner = [&["do", "you", "know"][..], &["can", "you", "tell", "me"][..], &["could", "you", "tell", "me"][..],
+                 &["tell", "me"][..], &["i", "wonder"][..], &["i", "want", "to", "know"][..]];
+    for p in inner {
+        if s.starts_with(p) && s.len() > p.len() + 1 && matches!(s[p.len()], "what" | "who" | "which" | "how" | "where" | "why" | "when") {
+            let rest = t[p.len()..].join(" ");
+            let q = read(net, &rest);
+            if !matches!(q, Unknown(_)) {
+                return q;
+            }
+            // the inside order: "what a dog is", "what dogs are like", "what dogs do", "what a dog has"
+            let k = p.len() + 1;
+            if s[p.len()] == "what" {
+                match s.last() {
+                    Some(&"is") | Some(&"are") => {
+                        if let Some(topic) = nps(net, &t, k).into_iter().find(|&(_, e)| e == n - 1).map(|(s, _)| s) {
+                            return Ask { topic, intent: Intent::WhatIs, more: false };
+                        }
+                    }
+                    Some(&"like") if n >= k + 3 && matches!(s[n - 2], "is" | "are") => {
+                        if let Some(topic) = nps(net, &t, k).into_iter().find(|&(_, e)| e == n - 2).map(|(s, _)| s) {
+                            return Ask { topic, intent: Intent::WhatLike, more: false };
+                        }
+                    }
+                    Some(&"do") | Some(&"does") => {
+                        if let Some(topic) = nps(net, &t, k).into_iter().find(|&(_, e)| e == n - 1).map(|(s, _)| s) {
+                            return Ask { topic, intent: Intent::WhatDoes, more: false };
+                        }
+                    }
+                    Some(&"have") | Some(&"has") => {
+                        if let Some(topic) = nps(net, &t, k).into_iter().find(|&(_, e)| e == n - 1).map(|(s, _)| s) {
+                            return Ask { topic, intent: Intent::WhatHas, more: false };
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
     }
     let n = t.len();
     // the noun phrase from i that ends exactly at `end`

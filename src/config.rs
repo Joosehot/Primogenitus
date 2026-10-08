@@ -54,6 +54,7 @@ pub struct RavenJudges {
 #[serde(deny_unknown_fields)]
 pub struct Feeling {
     pub good_adjectives: Vec<String>,
+    pub mild_adjectives: Vec<String>,
     pub bad_adjectives: Vec<String>,
     pub good_nouns: Vec<String>,
     pub bad_nouns: Vec<String>,

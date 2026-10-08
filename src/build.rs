@@ -51,6 +51,29 @@ fn reverse(kind: Kind) -> Kind {
     }
 }
 
+/// A word never tagged in use has its senses in no particular order ("AI":
+/// Army Intelligence first, artificial intelligence second). Its senses are
+/// put in order: a sense named by common words first (artificial
+/// intelligence, not Army Intelligence), then the more familiar; ties keep
+/// their order.
+fn order_untagged(wn: &mut crate::wordnet::WordNet) {
+    let fam: HashMap<(Pos, String), u32> = wn.index.iter().map(|(k, e)| (k.clone(), e.tagsense)).collect();
+    for ((pos, lemma), entry) in wn.index.iter_mut() {
+        if entry.tagsense > 0 || entry.offsets.len() < 2 {
+            continue;
+        }
+        // a sense named by common words before one named by names (Army
+        // Intelligence), then by how familiar its words are
+        let score = |off: &u32| -> (bool, u32) {
+            let others: Vec<&String> = wn.synsets[&(*pos, *off)].words.iter().map(|(w, _)| w).filter(|w| w.to_lowercase() != *lemma).collect();
+            let common = others.iter().any(|w| !w.chars().any(|c| c.is_uppercase()));
+            let f = others.iter().map(|w| fam.get(&(*pos, w.to_lowercase())).copied().unwrap_or(0)).max().unwrap_or(0);
+            (common, f)
+        };
+        entry.offsets.sort_by_key(|o| std::cmp::Reverse(score(o)));
+    }
+}
+
 /// How often each word stands alone after "a"/"an" in the dictionary's own
 /// texts ("an apple;", "a stone that", not "a water bird"): evidence that it counts.
 fn count_evidence(wn: &crate::wordnet::WordNet) -> HashMap<String, usize> {
@@ -90,7 +113,8 @@ pub fn build(root: &Path, cfg: &Config, log: &mut dyn FnMut(String)) -> Result<(
     let dir = wordnet::fetch(root, &cfg.build.url, log)?;
     steps.push(("the dictionary downloaded and unpacked (or found)".to_string(), t.elapsed().as_secs_f64()));
     let t = Instant::now();
-    let wn = wordnet::read(&dir)?;
+    let mut wn = wordnet::read(&dir)?;
+    order_untagged(&mut wn);
     steps.push((format!("the dictionary read: {} senses, {} words", wn.synsets.len(), wn.index.len()), t.elapsed().as_secs_f64()));
 
     // 1. base nodes, in the index's (sorted) order
@@ -119,9 +143,11 @@ pub fn build(root: &Path, cfg: &Config, log: &mut dyn FnMut(String)) -> Result<(
                 }
             }
         }
-        let proper = text.chars().any(|c| c.is_uppercase());
+        // an acronym ("AI", "TV", "DNA") is a common word, not a name
+        let acronym = !text.contains(' ') && text.len() <= 4 && text.len() >= 2 && text.chars().all(|c| c.is_ascii_uppercase());
+        let proper = !acronym && text.chars().any(|c| c.is_uppercase());
         let multi = text.contains(' ');
-        let plain = text.chars().all(|c| c.is_ascii_lowercase() || c == ' ' || c == '-');
+        let plain = acronym || text.chars().all(|c| c.is_ascii_lowercase() || c == ' ' || c == '-');
         let sure = plain
             && !proper
             && match pos {
@@ -205,7 +231,8 @@ pub fn build(root: &Path, cfg: &Config, log: &mut dyn FnMut(String)) -> Result<(
             .filter_map(|(w, _)| {
                 let l = w.to_lowercase();
                 let &id = base_id.get(&(pos, l.clone()))?;
-                let proper_sense = w.chars().any(|c| c.is_uppercase()) && !is_proper[id as usize];
+                let acronym = w.len() <= 4 && w.len() >= 2 && w.chars().all(|c| c.is_ascii_uppercase());
+                let proper_sense = !acronym && w.chars().any(|c| c.is_uppercase()) && !is_proper[id as usize];
                 (!proper_sense).then_some((id, l))
             })
             .collect()

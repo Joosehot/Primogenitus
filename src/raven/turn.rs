@@ -18,6 +18,9 @@
 //!   yes / no / maybe / I do not know         an answer
 //!   haha / lol, ok / cool, sorry             the small words
 //!   he / she / it / they is / was ADJ, died  about what they talked of last
+//!   nothing / not much                       nothing to tell
+//!   you are ADJ / you are not NP / do you know that you ...   about Raven
+//!   I made you / your creator                who made it
 //!
 //! And in the light of what Raven asked last (Expect): after "what is your
 //! name?" a bare "Joose" is a name; after "how are you?" a bare "good" or
@@ -66,6 +69,13 @@ pub enum Turn {
     PetNamed { noun: u32, name: String },
     /// a story Raven asked for but cannot read: heard
     Heard,
+    /// "nothing really", "not much"
+    Nothing,
+    /// "you are smart", "you are not an AI": something said about Raven (the
+    /// adjective when one was read)
+    AboutMe(Option<u32>),
+    /// "I made you", "your creator"
+    Creator,
     Name(String),
     Feel(u32),
     Role(u32),
@@ -120,7 +130,10 @@ fn words(text: &str) -> (Vec<String>, Vec<String>) {
 /// Words at the edges of a clause that change nothing Raven reads: "well,
 /// I have a cat too", "I am happy now".
 const LEAD: &[&str] = &["well", "oh", "um", "uh", "so", "actually", "honestly", "anyway", "hmm"];
-const TAIL: &[&str] = &["too", "also", "now", "today", "again", "anymore", "though", "please", "tonight", "lately"];
+const TAIL: &[&str] = &["too", "also", "now", "today", "again", "anymore", "though", "please", "tonight", "lately", "really"];
+
+/// "I am fine, I guess": hedges at the end change nothing Raven reads.
+const HEDGE: &[&[&str]] = &[&["i", "guess"], &["i", "think"], &["i", "suppose"], &["kind", "of"], &["sort", "of"], &["or", "so"]];
 
 const SOFT: &[&str] = &["so", "very", "really", "quite", "pretty", "a", "bit", "little", "kind", "of", "too", "a", "lot", "just", "also"];
 
@@ -185,6 +198,8 @@ fn clause(net: &Network, w: &[String], o: &[String], cx: &Context) -> Option<Tur
             b -= 2;
         } else if b > a + 2 && matches!(w[b - 2].as_str(), "last" | "this") && matches!(w[b - 1].as_str(), "week" | "month" | "year" | "night" | "morning" | "summer" | "winter" | "weekend") {
             b -= 2;
+        } else if let Some(h) = HEDGE.iter().find(|h| b >= a + 1 + h.len() && w[b - h.len()..b].iter().map(|x| x.as_str()).eq(h.iter().copied())) {
+            b -= h.len();
         } else if b > a + 2 && w[b - 1] == "ago" {
             // "a while ago", "two years ago"
             b -= if b > a + 3 && matches!(w[b - 3].as_str(), "a" | "an" | "two" | "three" | "few" | "many" | "some") { 3 } else { 2 };
@@ -222,7 +237,31 @@ fn clause(net: &Network, w: &[String], o: &[String], cx: &Context) -> Option<Tur
             return Some(Okay)
         }
         ["sorry"] | ["i", "am", "sorry"] | ["my", "bad"] => return Some(Sorry),
+        ["nothing"] | ["nothing", "much"] | ["not", "much"] | ["not", "a", "lot"] | ["nothing", "special"] | ["the", "usual"] => {
+            return Some(Nothing)
+        }
         _ => {}
+    }
+    // who made Raven: "I made you", "I am your creator", "your original creator"
+    let creator_word = |x: &str| matches!(x, "creator" | "maker" | "author" | "father" | "mother" | "parent" | "developer" | "inventor" | "programmer");
+    if (s.first() == Some(&"your") || s.starts_with(&["i", "am", "your"]) || s.starts_with(&["i", "am", "the"]))
+        && s.last().map(|x| creator_word(x)).unwrap_or(false)
+    {
+        return Some(Creator);
+    }
+    if s.first() == Some(&"i") && n >= 3 && matches!(s[1], "made" | "created" | "built" | "wrote" | "programmed" | "invented" | "coded") && s[2] == "you" {
+        return Some(Creator);
+    }
+    // about Raven: "you are smart", "you are not an AI", "do you know that you are ..."
+    let k = if s.starts_with(&["do", "you", "know", "that"]) { 4 } else { 0 };
+    if s.get(k) == Some(&"you") && n > k + 1 {
+        let j = k + 1 + usize::from(matches!(s.get(k + 1), Some(&"are") | Some(&"were")));
+        let adj = adj_at(net, w, j, n);
+        return Some(AboutMe(adj));
+    }
+    if k == 4 {
+        // "do you know that dogs bark": told, heard
+        return Some(Heard);
     }
     // a name
     if s.starts_with(&["my", "name", "is"]) && (n == 4 || n == 5) {

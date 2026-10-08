@@ -65,11 +65,15 @@ fn frame(cx: &Ctx, c: &Cand) -> Verdict {
     }
 }
 
-/// "a" and "an" only with one; no determiner only with many.
+/// "a" and "an" only with one; no determiner only with many (or with a noun
+/// that may be uncountable: "bread").
 fn determiner(cx: &Ctx, c: &Cand) -> Verdict {
     for np in nps(c) {
-        if cx.node(np.noun).mass && !(np.det == Det::The && np.num == Num::Sg) {
-            return Verdict::Refuse("a noun that may be uncountable, other than \"the X\"");
+        if cx.node(np.noun).mass {
+            if np.num == Num::Pl || np.det == Det::A {
+                return Verdict::Refuse("a noun that may be uncountable, with \"a\" or in the plural");
+            }
+            continue;
         }
         match (np.det, np.num) {
             (Det::A, Num::Pl) => return Verdict::Refuse("a/an with a plural"),

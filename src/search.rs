@@ -360,8 +360,14 @@ fn subjects(cx: &Ctx, c: &Cand) -> Vec<Cand> {
     }
     let mut out = Vec::new();
     let mass = cx.node(cx.topic).mass;
-    for (det, num) in [(Det::The, Num::Sg), (Det::A, Num::Sg), (Det::Bare, Num::Pl), (Det::The, Num::Pl)] {
-        if (generic && det == Det::The && !mass) || (mass && !(det == Det::The && num == Num::Sg)) {
+    let forms: &[(Det, Num)] = if mass {
+        &[(Det::Bare, Num::Sg), (Det::The, Num::Sg)]
+    } else {
+        &[(Det::The, Num::Sg), (Det::A, Num::Sg), (Det::Bare, Num::Pl), (Det::The, Num::Pl)]
+    };
+    for &(det, num) in forms {
+        // a general truth is said of all of them ("a dog is", "dogs are", "bread is")
+        if generic && det == Det::The {
             continue;
         }
         for &tense in tenses {
@@ -421,7 +427,7 @@ fn objects(cx: &Ctx, c: &Cand) -> Vec<Cand> {
             for (o, s, src) in nouns {
                 let line = true;
                 let dets: &[(Det, Num)] = if cx.node(o).mass {
-                    &[(Det::The, Num::Sg)]
+                    &[(Det::Bare, Num::Sg), (Det::The, Num::Sg)]
                 } else {
                     &[(Det::A, Num::Sg), (Det::The, Num::Sg), (Det::Bare, Num::Pl), (Det::The, Num::Pl)]
                 };
@@ -440,7 +446,7 @@ fn objects(cx: &Ctx, c: &Cand) -> Vec<Cand> {
         }
         Pred::CopNp { noun, np: None } => {
             let (det, num) = if cx.node(*noun).mass {
-                (Det::The, Num::Sg)
+                (Det::Bare, Num::Sg)
             } else if sn == Num::Sg {
                 (Det::A, Num::Sg)
             } else {
@@ -451,7 +457,7 @@ fn objects(cx: &Ctx, c: &Cand) -> Vec<Cand> {
             out.push(n);
         }
         Pred::Have { part, np: None } => {
-            let dets: &[(Det, Num)] = if cx.node(*part).mass { &[(Det::The, Num::Sg)] } else { &[(Det::A, Num::Sg), (Det::Bare, Num::Pl)] };
+            let dets: &[(Det, Num)] = if cx.node(*part).mass { &[(Det::Bare, Num::Sg)] } else { &[(Det::A, Num::Sg), (Det::Bare, Num::Pl)] };
             for &(det, num) in dets {
                 let mut n = c.clone();
                 n.pred = Pred::Have { part: *part, np: Some(Np { det, num, adj: None, noun: *part }) };

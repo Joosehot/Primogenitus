@@ -77,3 +77,35 @@ fn a_humane_conversation() {
     let r = talk("bye");
     assert!(!r.contains('?'), "a question at goodbye: {r}");
 }
+
+/// A conversation as it really went (2026-10-08), every turn of it read.
+#[test]
+fn the_conversation_that_went_wrong() {
+    let Some((net, cfg)) = setup() else { return };
+    let mut raven = Raven::new(&net, &cfg).unwrap();
+    raven.greeting();
+    let mut talk = |q: &str| {
+        let r = raven.reply(q).text;
+        println!("You: {q}\nPrimogenitus: {r}");
+        assert!(!r.contains("did not") && !r.contains("do not know the word"), "not followed: {q} -> {r}");
+        r
+    };
+    let r = talk("I am Joose, your original creator");
+    assert!(r.contains("Joose") && (r.contains("owe") || r.contains("made me") || r.contains("know me")), "{r}");
+    let r = talk("I am fine, i guess");
+    assert!(!r.contains("made you feel"), "{r}");
+    let r = talk("The helpless search for purpose");
+    assert!(r.contains("heavy") || r.contains("hard") || r.contains("hear you"), "{r}");
+    talk("I am an artificial intellegence architech");
+    let r = talk("Do you know that you are not an artificial intellegence but you can still talk?");
+    assert!(r.contains("program"), "{r}");
+    let r = talk("Do you know what's AI?");
+    assert!(r.to_lowercase().contains("intelligence") || r.contains("AI") || r.contains("ai "), "{r}");
+    talk("Good");
+    let r = talk("Nothing really");
+    assert!(!r.contains("glad you told me"), "{r}");
+    let r = talk("Can you tell me something about yourself");
+    assert!(r.contains("Primogenitus"), "{r}");
+    let r = talk("i meant you");
+    assert!(r.contains("Primogenitus") || r.contains("program"), "{r}");
+}

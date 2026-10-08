@@ -43,6 +43,8 @@ pub struct Person {
     pub ages: Vec<u32>,
     /// the things they described
     pub described: Vec<u32>,
+    /// they said they made Raven
+    pub creator: bool,
 }
 
 impl TurnCtx {
@@ -101,7 +103,8 @@ const SAY_KEYS: &[&str] = &[
     "sorry", "dont_know", "yes", "no", "not_followed", "not_known", "know_little", "q_bad", "q_good", "q_loss",
     "q_have_animal", "q_have", "q_like", "q_like_doing", "q_dislike", "q_role", "q_name", "q_topic", "q_open",
     "q_memory", "q_how_are_you", "not_sure", "pet_name", "pet_name_lost", "q_pet", "q_pet_lost", "q_ask_name", "age",
-    "heard", "listening", "no_talk", "q_tell", "q_good_plain", "nice_trait",
+    "heard", "listening", "no_talk", "q_tell", "q_good_plain", "nice_trait", "heard_bad", "nothing", "creator",
+    "compliment", "insult", "about_me", "empathy_mild", "q_mild",
 ];
 
 pub struct Raven<'a> {
@@ -270,6 +273,26 @@ impl<'a> Raven<'a> {
             .find(|&h| h == n || kind_path(self.net, h, n).is_some() || kind_path(self.net, n, h).is_some())
     }
 
+    /// How a turn's words feel, when the turn itself cannot be read: the
+    /// strongest bad word wins over good ones ("the helpless search").
+    fn tone(&self, text: &str) -> f32 {
+        let mut tone = 0.0f32;
+        for w in text.split(|c: char| !c.is_alphabetic()).filter(|w| w.len() > 2) {
+            let w = w.to_lowercase();
+            for &q in self.net.lookup(&w) {
+                let n = self.net.node(q);
+                if n.form != Form::Base || !matches!(n.pos, Pos::Adj | Pos::Noun) || n.proper {
+                    continue;
+                }
+                if let Some(v) = self.valence(n.lemma) {
+                    tone = if v < 0.0 || tone < 0.0 { tone.min(v) } else { tone.max(v) };
+                }
+                break;
+            }
+        }
+        tone
+    }
+
     /// Primo's words for an answer, said a little more warmly.
     fn warm(&self, text: &str) -> String {
         if let Some(that) = text.strip_prefix("Not that I know: no line in my network says that ") {
@@ -418,14 +441,44 @@ impl<'a> Raven<'a> {
                         Some(r) => self.noun_slots(r, b.clone()),
                         None => b.clone(),
                     };
-                    openers.extend(self.parts("heard", &s, |p| p.feel = if ctx.valence < 0.0 { -1.0 } else { 0.0 }));
+                    // what it is about cannot be read, but how it feels can be: its words
+                    let tone = self.tone(text);
+                    ctx.feel(tone);
+                    if tone < 0.0 {
+                        openers.extend(self.parts("heard_bad", &s, |p| p.feel = -1.0));
+                        questions.extend(self.parts("q_bad", &s, q));
+                    } else {
+                        openers.extend(self.parts("heard", &s, |p| p.feel = if ctx.valence < 0.0 { -1.0 } else { tone }));
+                    }
+                }
+                Turn::Nothing => {
+                    openers.extend(self.parts("nothing", &b, |_| {}));
+                    questions.extend(self.parts("q_open", &b, q));
+                }
+                Turn::Creator => {
+                    self.person.creator = true;
+                    openers.extend(self.parts("creator", &b, |p| p.meets = true));
+                    ctx.new_name = true;
+                }
+                Turn::AboutMe(adj) => {
+                    let v = adj.and_then(|a| self.valence(a)).unwrap_or(0.0);
+                    let key = if v > 0.0 { "compliment" } else if v < 0.0 { "insult" } else { "about_me" };
+                    let s = match adj {
+                        Some(a) => b.clone().set("adj", self.net.node(a).text.clone()),
+                        None => b.clone(),
+                    };
+                    bodies.extend(self.parts(key, &s, |p| p.answer = true));
+                    ctx.asked = true;
                 }
                 Turn::Feel(a) => {
                     let v = self.valence(a).unwrap_or(0.0);
                     self.person.mood = Some((a, v));
                     ctx.feel(v);
                     let s = b.clone().set("adj", self.net.node(a).text.clone());
-                    let (open, ask) = if v < 0.0 {
+                    let mild = self.cfg.raven.feeling.mild_adjectives.iter().any(|m| self.net.base(m, Pos::Adj) == Some(a));
+                    let (open, ask) = if mild {
+                        ("empathy_mild", "q_mild")
+                    } else if v < 0.0 {
                         ("empathy_bad", "q_bad")
                     } else if v > 0.0 {
                         ("empathy_good", "q_good")

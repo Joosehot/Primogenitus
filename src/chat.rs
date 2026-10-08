@@ -179,7 +179,7 @@ impl<'a> Chat<'a> {
     fn named(&self, t: u32) -> (String, Num) {
         let n = self.net.node(t);
         if n.mass {
-            return (format!("the {}", n.text), Num::Sg);
+            return (n.text.clone(), Num::Sg);
         }
         match self.net.form(t, Form::Plural) {
             Some(p) if p.sure => (p.text.clone(), Num::Pl),
@@ -217,7 +217,7 @@ impl<'a> Chat<'a> {
     /// the grammar judges and the parser's check agree.
     fn say(&self, cx: &Ctx, make: impl Fn(Np) -> Pred) -> Option<String> {
         let mass = self.net.node(cx.topic).mass;
-        let forms: &[(Det, Num)] = if mass { &[(Det::The, Num::Sg)] } else { &[(Det::Bare, Num::Pl), (Det::A, Num::Sg), (Det::The, Num::Sg)] };
+        let forms: &[(Det, Num)] = if mass { &[(Det::Bare, Num::Sg), (Det::The, Num::Sg)] } else { &[(Det::Bare, Num::Pl), (Det::A, Num::Sg), (Det::The, Num::Sg)] };
         for &(det, num) in forms {
             let subj = Np { det, num, adj: None, noun: cx.topic };
             let c = Cand { pattern: "answer", subj: Some(subj.clone()), pred: make(subj), parts: vec![], why: vec![] };
@@ -235,7 +235,7 @@ impl<'a> Chat<'a> {
 
     fn complement(&self, noun: u32, subj: &Np) -> Np {
         if self.net.node(noun).mass {
-            Np { det: Det::The, num: Num::Sg, adj: None, noun }
+            Np { det: Det::Bare, num: Num::Sg, adj: None, noun }
         } else if subj.num == Num::Sg {
             Np { det: Det::A, num: Num::Sg, adj: None, noun }
         } else {
@@ -379,7 +379,7 @@ impl<'a> Chat<'a> {
 
     fn object_np(&self, o: u32) -> Np {
         if self.net.node(o).mass {
-            Np { det: Det::The, num: Num::Sg, adj: None, noun: o }
+            Np { det: Det::Bare, num: Num::Sg, adj: None, noun: o }
         } else {
             Np { det: Det::Bare, num: Num::Pl, adj: None, noun: o }
         }

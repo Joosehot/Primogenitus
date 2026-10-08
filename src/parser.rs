@@ -294,11 +294,17 @@ fn noun_phrases(net: &Network, cfg: &Config, t: &[String], i: usize) -> Vec<(usi
                     _ => continue,
                 };
                 let first = &t[if with_adj { j } else { k }];
+                // a noun that may be uncountable: "bread", "the bread", never "a bread"
+                // or "breads"; any other: "a dog", "the dog", "dogs", never "dog"
                 let mass = net.node(n.lemma).mass;
-                let ok = (!mass || (det == Some("the") && num == Num::Sg)) && match det {
-                    Some("a") | Some("an") => num == Num::Sg && lexicon::article(first, &cfg.article) == det.unwrap(),
-                    Some(_) => true,
-                    None => num == Num::Pl,
+                let ok = if mass {
+                    num == Num::Sg && matches!(det, None | Some("the"))
+                } else {
+                    match det {
+                        Some("a") | Some("an") => num == Num::Sg && lexicon::article(first, &cfg.article) == det.unwrap(),
+                        Some(_) => true,
+                        None => num == Num::Pl,
+                    }
                 };
                 if ok && !out.contains(&(k + len, num)) {
                     out.push((k + len, num));
@@ -335,7 +341,8 @@ fn agrees(num: Num, form: Form) -> bool {
 
 /// The grammar every sentence must parse under:
 ///   S  -> NP VP "."
-///   NP -> ("a" | "an" | "the")? Adj? Noun     (a/an: singular, its sound; none: plural)
+///   NP -> ("a" | "an" | "the")? Adj? Noun     (a/an: singular, its sound; none: plural,
+///                                             or a noun that may be uncountable, singular)
 ///   VP -> Verb(intransitive) | Verb(transitive) NP | Be Adj | Be NP | Have NP
 /// with the verb agreeing with the subject's number.
 pub fn check(net: &Network, cfg: &Config, sentence: &str) -> Result<String> {
