@@ -27,6 +27,16 @@ pub struct RavenCfg {
     pub say: std::collections::BTreeMap<String, Vec<String>>,
     pub judges: RavenJudges,
     pub feeling: Feeling,
+    pub memory: RavenMemory,
+}
+
+/// How much of the conversation is kept as it was said; past it, the oldest
+/// exchanges are compacted (their words let go, their facts kept).
+#[derive(Deserialize, Debug, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct RavenMemory {
+    pub max_words: usize,
+    pub keep_words: usize,
 }
 
 #[derive(Deserialize, Debug, Clone)]

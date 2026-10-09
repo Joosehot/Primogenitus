@@ -31,6 +31,9 @@
 //!                                            (what's AI; what AI is)
 //!   tell me about yourself / what about you / i meant you      about the bot
 //!   and you / how about you                  how the bot is
+//!   what do you remember [about me / my NP]  what the bot remembers of the whole conversation
+//!   what is my name / who am I               the user's name
+//!   what is my NP's name / what was my NP called    their pet's name
 //!   where / when / why / how ...             said plainly: no lines for places, times, reasons, ways
 //!
 //! NP is a noun phrase (a/an/the/some, a noun of one or more words, singular
@@ -80,6 +83,12 @@ pub enum Question {
     HowAdj { adj: u32, topic: Subject },
     /// who are you, what is your name
     WhoAreYou,
+    /// what do you remember [about my NP]
+    Recall(Option<u32>),
+    /// what is my name
+    MyName,
+    /// what is my NP's name
+    PetNameOf(u32),
     /// how are you
     HowAreYou,
     /// can you VERB [NP]: the verb and its object
@@ -213,6 +222,55 @@ pub fn read(net: &Network, text: &str) -> Question {
         ["what", "about", "you"] | ["about", "you"] | ["you"] | ["i", "meant" | "mean", "you"] | ["i", "was", "asking", "about", "you"]
         | ["describe", "yourself"] | ["introduce", "yourself"] => return WhoAreYou,
         _ => {}
+    }
+    // what Raven remembers: "what do you remember (about me)", "what is my name", "what is my dog's name"
+    match s.as_slice() {
+        ["what", "do", "you", "remember"] | ["what", "do", "you", "remember", "about", "me"] | ["what", "do", "you", "know", "about", "me"]
+        | ["what", "did", "i", "tell", "you"] | ["do", "you", "remember", "me"] | ["what", "have", "i", "told", "you"]
+        | ["do", "you", "remember", "what", "i", "told", "you"] | ["what", "do", "you", "remember", "of", "me"] => return Recall(None),
+        ["what", "is", "my", "name"] | ["who", "am", "i"] | ["do", "you", "remember", "my", "name"] | ["do", "you", "know", "my", "name"] => {
+            return MyName
+        }
+        _ => {}
+    }
+    {
+        // "what is my dog's name", "what is the name of my dog", "do you remember my dog's name"
+        let n = t.len();
+        let poss = |i: usize| -> Option<u32> {
+            let w = t.get(i)?.strip_suffix("'s")?;
+            nps(net, &[w.to_string()], 0).into_iter().find_map(|(s, _)| match s {
+                Subject::Noun(x) => Some(x),
+                _ => None,
+            })
+        };
+        // "what is my dog called", "what was my dog called"
+        if (s.starts_with(&["what", "is", "my"]) || s.starts_with(&["what", "was", "my"])) && n >= 5 && s[n - 1] == "called" {
+            if let Some(Subject::Noun(x)) = nps(net, &t, 3).into_iter().find(|&(_, e)| e == n - 1).map(|(s, _)| s) {
+                return PetNameOf(x);
+            }
+        }
+        if (s.starts_with(&["what", "is", "my"]) || s.starts_with(&["what", "was", "my"]) || s.starts_with(&["do", "you", "remember", "my"]) || s.starts_with(&["do", "you", "know", "my"]))
+            && n >= 5
+            && s[n - 1] == "name"
+        {
+            if let Some(x) = poss(n - 2) {
+                return PetNameOf(x);
+            }
+        }
+        if s.starts_with(&["what", "is", "the", "name", "of", "my"]) {
+            if let Some(Subject::Noun(x)) = nps(net, &t, 6).into_iter().find(|&(_, e)| e == n).map(|(s, _)| s) {
+                return PetNameOf(x);
+            }
+        }
+        // "what do you remember about my dog", "what did i tell you about my cat", "do you remember my dog"
+        for p in [&["what", "do", "you", "remember", "about", "my"][..], &["what", "did", "i", "tell", "you", "about", "my"][..],
+                  &["what", "do", "you", "know", "about", "my"][..], &["do", "you", "remember", "my"][..]] {
+            if s.starts_with(p) {
+                if let Some(Subject::Noun(x)) = nps(net, &t, p.len()).into_iter().find(|&(_, e)| e == n).map(|(s, _)| s) {
+                    return Recall(Some(x));
+                }
+            }
+        }
     }
     // "can you tell me something about yourself": only polite words around "yourself"
     if s.last() == Some(&"yourself")

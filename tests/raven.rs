@@ -182,3 +182,38 @@ fn the_context_holds() {
     let r = talk("Goodbye!");
     assert!(!r.contains('?'), "{r}");
 }
+
+/// A long conversation: the whole of it is remembered, compacting runs, and
+/// what was told at the start is still known at the end.
+#[test]
+fn the_whole_conversation_is_remembered() {
+    let Some((net, mut cfg)) = setup() else { return };
+    cfg.raven.memory.max_words = 300;
+    cfg.raven.memory.keep_words = 150;
+    let mut raven = Raven::new(&net, &cfg).unwrap();
+    raven.greeting();
+    raven.reply("Joose");
+    raven.reply("I have a dog");
+    raven.reply("Rex");
+    raven.reply("I like to code");
+    for q in ["What is a cat?", "What does a bird do?", "Is a whale a mammal?", "What is a tree?", "What do dogs chase?",
+              "Which animals swim?", "What is bread?", "Is an apple a fruit?", "What animals have wings?", "What is music?"]
+        .iter()
+        .cycle()
+        .take(60)
+    {
+        raven.reply(q);
+    }
+    assert!(raven.transcript.compactions > 0, "never compacted");
+    assert!(raven.transcript.words() <= 300, "kept text past the limit: {}", raven.transcript.words());
+    assert!(raven.transcript.turns() >= 64);
+    let r = raven.reply("What is my name?").text;
+    println!("Primogenitus: {r}");
+    assert!(r.contains("Joose"), "{r}");
+    let r = raven.reply("What is my dog's name?").text;
+    println!("Primogenitus: {r}");
+    assert!(r.contains("Rex"), "{r}");
+    let r = raven.reply("What do you remember about me?").text;
+    println!("Primogenitus: {r}");
+    assert!(r.contains("Joose") && r.contains("dog") && r.contains("Rex") && r.contains("cod"), "{r}");
+}

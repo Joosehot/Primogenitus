@@ -105,6 +105,10 @@ impl<'a> Chat<'a> {
             Question::Help => Reply::plain(c.help.clone()),
             Question::Unknown(why) => Reply::plain(why),
             Question::WhoAreYou => Reply::plain(c.who_am_i.clone()),
+            // what is remembered of a conversation is Raven's (primogenitus chat, the page)
+            Question::Recall(_) | Question::MyName | Question::PetNameOf(_) => {
+                Reply::plain("I remember a conversation only while we have one: talk with me in the chat.")
+            }
             Question::HowAreYou => Reply::plain(c.how_am_i.clone()),
             Question::YouCan(v, obj) => Reply::plain(self.me_can(v, obj).unwrap_or_else(|| self.cfg.me.cannot.clone())),
             Question::YouAreAdj(a) => Reply::plain(self.me_word(a, &self.cfg.me.is, Pos::Adj).unwrap_or_else(|| self.cfg.me.unknown_adj.clone())),

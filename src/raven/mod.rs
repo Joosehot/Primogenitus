@@ -15,6 +15,7 @@
 
 pub mod feeling;
 pub mod judges;
+pub mod memory;
 pub mod turn;
 
 use crate::chat::{kind_path, Chat, Reply};
@@ -24,6 +25,7 @@ use crate::network::{Form, Network, Pos};
 use crate::question::Question;
 use anyhow::{bail, Result};
 use std::collections::HashMap;
+use memory::{Exchange, Fact, Transcript};
 use turn::{Expect, Turn};
 
 /// What Raven knows about the person it talks with.
@@ -108,7 +110,8 @@ const SAY_KEYS: &[&str] = &[
     "q_memory", "q_how_are_you", "not_sure", "pet_name", "pet_name_lost", "q_pet", "q_pet_lost", "q_ask_name", "age",
     "heard", "listening", "no_talk", "q_tell", "q_good_plain", "nice_trait", "heard_bad", "nothing", "creator",
     "compliment", "insult", "about_me", "empathy_mild", "q_mild", "often", "repair", "q_tell_more", "q_like_doing_low", "hard_news", "q_hard_news", "good_news_self",
-    "yes_low", "heard_low", "who_am_i_more",
+    "yes_low", "heard_low", "who_am_i_more", "recall", "recall_none", "recall_none_about", "my_name", "my_name_none",
+    "pet_name_is", "pet_name_was", "pet_name_none",
 ];
 
 pub struct Raven<'a> {
@@ -126,6 +129,8 @@ pub struct Raven<'a> {
     low_since: Option<u64>,
     /// what Raven's last reply was about, for a repair
     last_topic: Option<u32>,
+    /// the whole conversation (compacted when it grows long)
+    pub transcript: Transcript,
 }
 
 /// The words for a template's slots: {name}, {noun}, {a_noun}, {nouns},
@@ -185,6 +190,7 @@ impl<'a> Raven<'a> {
             referent: None,
             low_since: None,
             last_topic: None,
+            transcript: Transcript::default(),
         })
     }
 
@@ -369,6 +375,33 @@ impl<'a> Raven<'a> {
                 Turn::Ask(Question::Thanks) => {
                     ctx.closing = true;
                     openers.extend(self.parts("thanks", &b, |_| {}));
+                }
+                Turn::Ask(Question::Recall(about)) => {
+                    ctx.asked = true;
+                    bodies.push(self.recall(about));
+                }
+                Turn::Ask(Question::MyName) => {
+                    ctx.asked = true;
+                    let key = if self.person.name.is_some() { "my_name" } else { "my_name_none" };
+                    bodies.extend(self.parts(key, &b, |p| {
+                        p.answer = true;
+                        p.memory = true;
+                        p.name = false;
+                    }));
+                }
+                Turn::Ask(Question::PetNameOf(x)) => {
+                    ctx.asked = true;
+                    let pet = self.person.pets.iter().rev().find(|p| p.0 == x || kind_path(self.net, p.0, x).is_some()).cloned();
+                    let s = self.noun_slots(pet.as_ref().map(|p| p.0).unwrap_or(x), b.clone());
+                    let (key, s) = match pet {
+                        Some((n, name, _)) if self.person.lost.contains(&n) => ("pet_name_was", s.set("pet", name)),
+                        Some((_, name, _)) => ("pet_name_is", s.set("pet", name)),
+                        None => ("pet_name_none", s),
+                    };
+                    bodies.extend(self.parts(key, &s, |p| {
+                        p.answer = true;
+                        p.memory = true;
+                    }));
                 }
                 Turn::Ask(q0) => {
                     ctx.asked = true;
@@ -788,6 +821,10 @@ impl<'a> Raven<'a> {
                 bodies.push(Part { text: r, answer: true, ..Default::default() });
             }
         }
+        // the thread stays while what they say stays low
+        if ctx.low && ctx.valence < 0.0 {
+            self.low_since = Some(self.turn);
+        }
         // something to go on with when the turn gives nothing to ask about
         // a question that would fit anyone ("what have you been up to?") is generic
         let anyone: Vec<String> = ["q_mild", "q_good_plain", "q_open"].iter().flat_map(|k| self.say(k).iter().cloned()).collect();
@@ -812,7 +849,121 @@ impl<'a> Raven<'a> {
                 .collect();
             openers.extend(named);
         }
-        self.search(openers, bodies, questions, &ctx)
+        let reply = self.search(openers, bodies, questions, &ctx);
+        // the whole conversation is remembered: the exchange, and what was read from it
+        let facts = self.facts_of(&turns);
+        let m = &self.cfg.raven.memory;
+        self.transcript.push(Exchange { turn: self.turn, user: text.to_string(), reply: reply.text.clone(), facts }, m.max_words, m.keep_words);
+        let mut reply = reply;
+        reply.why.push(format!(
+            "raven -remembers-> {} turns ({} compacted, {} facts kept from them)",
+            self.transcript.turns(),
+            self.transcript.compacted.turns,
+            self.transcript.compacted.facts.len()
+        ));
+        reply
+    }
+
+    /// What Raven read from a turn, to remember.
+    fn facts_of(&self, turns: &[Turn]) -> Vec<Fact> {
+        let mut out = Vec::new();
+        for t in turns {
+            match t {
+                Turn::Name(n) => out.push(Fact::Name(n.clone())),
+                Turn::Feel(a) => out.push(Fact::Feel(*a, self.valence(*a).unwrap_or(0.0))),
+                Turn::FeelNot(a) => out.push(Fact::Feel(*a, -self.valence(*a).unwrap_or(0.0))),
+                Turn::Have(x) => out.push(Fact::Has(*x)),
+                Turn::Like(x) | Turn::LikeDoing(x) => out.push(Fact::Likes(*x)),
+                Turn::Dislike(x) => out.push(Fact::Dislikes(*x)),
+                Turn::MyIs { noun, adj } => out.push(Fact::Is(*noun, *adj)),
+                Turn::Happened { noun, event } => out.push(Fact::Happened(*noun, *event)),
+                Turn::IHappened(e) => out.push(Fact::TheyHappened(*e)),
+                Turn::PetNamed { noun, name } => out.push(Fact::PetName(*noun, name.clone())),
+                Turn::ItsName { name, .. } => {
+                    if let Some(p) = self.person.pets.iter().rev().find(|p| &p.1 == name) {
+                        out.push(Fact::PetName(p.0, name.clone()));
+                    }
+                }
+                Turn::Age { noun, age } => out.push(Fact::Age(*noun, age.clone())),
+                Turn::Role(r) => out.push(Fact::Role(*r)),
+                Turn::Ask(_) => {
+                    if let Some(tp) = self.chat.topic() {
+                        out.push(Fact::Asked(tp));
+                    }
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+
+    /// A verb in the past, a phrase one too ("break up" -> "broke up").
+    fn past(&self, v: u32) -> String {
+        let text = &self.net.node(v).text;
+        if let Some(p) = self.net.form(v, Form::Past) {
+            return p.text.clone();
+        }
+        match text.split_once(' ') {
+            Some((head, rest)) => match self.net.base(head, Pos::Verb).and_then(|h| self.net.form(h, Form::Past)) {
+                Some(p) => format!("{} {rest}", p.text),
+                None => text.clone(),
+            },
+            None => text.clone(),
+        }
+    }
+
+    /// What Raven remembers of the whole conversation (about one thing, or all).
+    fn recall(&self, about: Option<u32>) -> Part {
+        let mut said: Vec<String> = Vec::new();
+        let mut asked = 0;
+        for (_, f) in self.transcript.facts().into_iter().rev() {
+            if let Some(x) = about {
+                let touches = f.about().iter().any(|&n| n == x || kind_path(self.net, n, x).is_some() || kind_path(self.net, x, n).is_some());
+                if !touches {
+                    continue;
+                }
+            }
+            let gone = |n: u32| self.person.lost.contains(&n);
+            let s = |n: u32| self.noun_slots(n, Slots::default());
+            let phrase = match &f {
+                Fact::Name(name) => Slots::default().set("name", name.clone()).fill("your name is {name}"),
+                Fact::Feel(a, _) => Some(format!("you felt {}", self.net.node(*a).text)),
+                Fact::Has(n) if !gone(*n) => s(*n).fill("you have {a_noun}").or_else(|| s(*n).fill("you have {noun}")),
+                Fact::Likes(n) if self.net.node(*n).pos == Pos::Verb => self.verb_slots(*n, Slots::default()).fill("you like {verbing}"),
+                Fact::Likes(n) => s(*n).fill("you like {nouns}").or_else(|| Some(format!("you like {}", self.net.node(*n).text))),
+                Fact::Dislikes(n) => s(*n).fill("you do not like {nouns}"),
+                Fact::Is(n, a) => Some(format!("your {} {} {}", self.net.node(*n).text, if gone(*n) { "was" } else { "is" }, self.net.node(*a).text)),
+                Fact::Happened(n, e) => Some(format!("your {} {}", self.net.node(*n).text, self.past(*e))),
+                Fact::TheyHappened(e) => Some(format!("you {}", self.past(*e))),
+                Fact::PetName(n, name) => Some(format!("your {} {} called {name}", self.net.node(*n).text, if gone(*n) { "was" } else { "is" })),
+                Fact::Age(n, age) => Some(format!("your {} is {age} old", self.net.node(*n).text)),
+                Fact::Role(n) => s(*n).fill("you are {a_noun}"),
+                Fact::Asked(n) if asked < 2 && about.is_none() => {
+                    asked += 1;
+                    s(*n).fill("you asked me about {nouns}")
+                }
+                _ => None,
+            };
+            if let Some(p) = phrase {
+                let p = p[..1].to_lowercase() + &p[1..];
+                if !said.contains(&p) {
+                    said.push(p);
+                }
+            }
+        }
+        said.reverse();
+        let text = match (said.len(), about) {
+            (0, Some(x)) => self.noun_slots(x, self.base()).fill(&self.say("recall_none_about")[0]).unwrap_or_default(),
+            (0, None) => self.say("recall_none")[0].clone(),
+            _ => {
+                let list = match said.len() {
+                    1 => said[0].clone(),
+                    k => format!("{} and {}", said[..k - 1].join(", "), said[k - 1]),
+                };
+                Slots::default().set("list", list).fill(&self.say("recall")[0]).unwrap_or_default()
+            }
+        };
+        Part { text, answer: true, memory: !said.is_empty(), mentions: about.into_iter().collect(), ..Default::default() }
     }
 
     /// Every reply of at most one opener, one body and one question, scored by

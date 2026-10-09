@@ -211,6 +211,22 @@ q_open = ["What would you like to talk about?", "Tell me something about yoursel
 q_memory = ["Is that true of your {noun} too?", "Does your {noun} do that?"]
 q_how_are_you = ["How are you, {name}?", "How are you today?"]
 
+recall = ["I remember that {list}."]
+recall_none = ["You have not told me about yourself yet. I would like to hear."]
+recall_none_about = ["You have not told me about your {noun} yet."]
+my_name = ["Your name is {name}."]
+my_name_none = ["You have not told me your name yet. What is it?"]
+pet_name_is = ["Your {noun} is called {pet}."]
+pet_name_was = ["Your {noun} was called {pet}."]
+pet_name_none = ["You have not told me your {noun}'s name yet."]
+
+# The whole conversation is remembered. Past max_words of kept text, the
+# oldest exchanges are compacted down to keep_words: their words are let go,
+# every fact read from them is kept with its turn.
+[raven.memory]
+max_words = 6000
+keep_words = 3000
+
 # The humane judges' weights.
 [raven.judges]
 feelings_first = 4.0        # sympathy first when someone hurts (or the same, taken away)
