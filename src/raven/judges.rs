@@ -109,7 +109,8 @@ pub fn score(parts: &[&Part], ctx: &TurnCtx, hist: &History, w: &RavenJudges) ->
     }
     // natural
     for p in parts {
-        if hist.said.contains(&p.text) {
+        // (an answer to a question asked again is said again)
+        if hist.said.contains(&p.text) && !(p.answer && ctx.asked) {
             s += w.repeat;
         }
         if p.generic {
