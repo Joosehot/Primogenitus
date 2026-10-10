@@ -135,7 +135,8 @@ feeling = "No. I have only words."
 # ---------------------------------------------------------------- Raven
 # Raven makes the conversation humane. Its replies are built from these parts
 # (one opener, one body, one question at most) and judged; Primo's facts fill
-# the bodies. Slots: {name} {noun} {a_noun} {nouns} {adj} {verb} {verbing}
+# the bodies, and the follow-up questions are the model's own (MBLM asks them,
+# see [mblm]); only the openings below are written down. Slots: {name} {noun} {a_noun} {nouns} {adj} {verb} {verbing}
 # {that} {what} {kinds}; a template whose slot has no word is not used.
 [raven.say]
 greeting = ["Hello. I am Primogenitus, Primo for short.", "Hello.", "Hi there."]
@@ -169,22 +170,16 @@ know_little = ["I do not know much about {what} yet."]
 not_sure = ["I am not sure what {that}. I have not read about it."]
 pet_name = ["{pet} is a lovely name.", "{pet}, what a nice name."]
 pet_name_lost = ["{pet} is a lovely name. You must miss {pron}.", "You must miss {pet}."]
-q_pet = ["What is {pet} like?", "How old is {pet}?"]
-q_pet_lost = ["What do you remember most about {pet}?", "How long did you have {pet}?"]
 age = ["{age}, I see.", "{age} is a nice age for {a_noun}.", "So {pet} is {age} old."]
 heard = ["Thank you for telling me.", "I see. Thank you for sharing that with me.", "I am glad you told me."]
 listening = ["I am listening.", "Take your time. I am here."]
 no_talk = ["That is all right. I am here if you want to talk later.", "Of course. We can talk about something else."]
-q_tell = ["What happened?", "What is making you feel {adj}?", "How long have you felt {adj}?"]
-q_tell_more = ["How does that make you feel?", "Do you want to tell me more?", "Is that part of what is making you feel {adj}?"]
 often = ["{often}, that is a lot of {verbing}.", "{often}. You must really like it.", "{often}, I see."]
 repair = ["Sorry, that came out wrong. I was only saying something I had read about {nouns}.", "Sorry, I said that badly. Let us go back to you."]
-q_good_plain = ["What have you been up to?", "Tell me more."]
 nice_trait = ["{pet} sounds lovely.", "Your {noun} sounds lovely.", "How lovely."]
 who_am_i_more = ["Me? I am Primo, a program made of words. I know what my word network knows, and nothing more.", "I am Primogenitus: no body, no training, just a great many words and the lines between them."]
 heard_low = ["Thank you for telling me.", "I hear you.", "I am here, and I am listening."]
 hard_news = ["I am so sorry. That is hard.", "I am sorry, {name}. That must hurt.", "That is really hard. I am sorry."]
-q_hard_news = ["How are you holding up?", "Do you want to talk about it?", "How long ago was it?"]
 good_news_self = ["That is wonderful!", "How lovely. I am glad for you."]
 yes_low = ["It is. Be gentle with yourself.", "I know. It takes time.", "I understand."]
 heard_bad = ["That sounds heavy.", "That sounds hard. Thank you for telling me.", "I hear you. That is not easy."]
@@ -194,21 +189,8 @@ compliment = ["Thank you. That is kind of you.", "Thank you, {name}."]
 insult = ["I am sorry. I know only what my word network knows.", "I am sorry. I am doing my best with the words I have."]
 about_me = ["Maybe so. I am a program that makes sentences from a frozen network of words, and I talk in my own way.", "That may be true. I am a program made of words, and I talk as well as my words let me."]
 empathy_mild = ["All right.", "Good to hear.", "Fair enough."]
-q_mild = ["Anything on your mind?", "What have you been up to?"]
-q_bad = ["Do you want to talk about it?", "What happened?", "Is there anything that would help?"]
-q_good = ["What made you feel {adj}?", "What happened?", "Tell me more."]
-q_loss = ["Do you want to tell me about your {noun}?", "What was your {noun} like?"]
-q_have_animal = ["What is your {noun}'s name?", "How old is your {noun}?", "What is your {noun} like?"]
-q_have = ["What is your {noun} like?", "How long have you had your {noun}?"]
-q_like = ["What do you like most about {nouns}?", "Do you have {a_noun}?"]
-q_like_doing_low = ["Does {verbing} help when you feel {adj}?", "Is {verbing} a good place to be when you feel {adj}?"]
-q_like_doing = ["How often do you {verb}?", "When did you start {verbing}?"]
-q_dislike = ["What do you not like about {nouns}?"]
-q_role = ["What is it like to be {a_noun}?", "Do you enjoy being {a_noun}?"]
 q_name = ["How are you today?", "What would you like to talk about?"]
-q_topic = ["Do you have {a_noun}?", "What made you think of {nouns}?", "What do you like about {nouns}?"]
 q_open = ["What would you like to talk about?", "Tell me something about yourself.", "How is your day going?"]
-q_memory = ["Is that true of your {noun} too?", "Does your {noun} do that?"]
 q_how_are_you = ["How are you, {name}?", "How are you today?"]
 
 recall = ["I remember that {list}."]
@@ -242,6 +224,8 @@ keeps_going = 1.0           # one question back
 interrogation = -1.5        # a fourth question in a row, or a question at goodbye
 repeat = -6.0               # a part said before
 generic = -0.4              # a question that would fit anything
+model = 0.5                 # the model's own question, by the log of its probability (the best: 0)
+same_form = -2.0            # the same kind of question as the last one ("do you feel ...?" again)
 max_words = 32
 low_turns = 6               # how many turns a bad feeling stays the thread (a good one ends it)
 off_thread = -2.5           # a cheerful question for anyone while they are low
@@ -280,3 +264,21 @@ has = -0.3                  # "... has a tail"
 does = 0.4                  # "... barks" / "... chases rabbits"
 end_intransitive = 0.0      # "... barks." (no object)
 end_with_objects = -1.5     # ending bare a verb the examples give objects ("they eat.")
+# The questions it asks (Raven's follow-ups): how likely each form of the
+# question grammar is, before its words' lines are counted.
+ask_offer = 6               # how many of its likeliest questions Raven may weigh
+ask_does = 0.3              # "Does your cat chase mice?"
+ask_what = 0.0              # "What does your cat chase?"
+ask_what_deed = 2.0         # "What do you code?"
+# verbs that say almost nothing on their own: not asked about, not continued with
+light_verbs = ["act", "make", "do", "get", "go", "take", "come", "have", "be", "give", "put", "set", "let", "keep", "seem", "become", "belong", "break", "see", "say", "rhyme", "spell", "mean"]
+ask_is = 0.2                # "Is your cat playful?"
+ask_kind = -0.6             # "Is your cat a siamese?"
+ask_like = -1.0             # "What is your cat like?"
+ask_name = 0.8              # "What is your cat's name?"
+ask_feel = 0.4              # "Do you feel lonely?"
+ask_since = -0.3            # "How long have you felt sad?"
+ask_happened = 0.8          # "What happened?" (a bad feeling)
+ask_makes = 1.2             # "What makes you feel sad?"
+ask_have = 0.5              # "Do you have a cat?"
+ask_like_it = 0.0           # "Do you like cats?"

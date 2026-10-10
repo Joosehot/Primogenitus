@@ -15,10 +15,15 @@
 //!                    ago), no cheerful question that would fit anyone and no
 //!                    fact: the conversation stays on them
 //!   natural          nothing said twice, not the same opening as last time,
-//!                    not too long
+//!                    not the same kind of question twice running, not too long
 
 use super::{History, Part, TurnCtx};
 use crate::config::RavenJudges;
+
+/// A question's form: its first three words ("do you feel").
+pub fn form_of(q: &str) -> String {
+    q.to_lowercase().split_whitespace().take(3).collect::<Vec<_>>().join(" ")
+}
 
 pub fn score(parts: &[&Part], ctx: &TurnCtx, hist: &History, w: &RavenJudges) -> (f64, Vec<&'static str>) {
     let mut s = 0.0;
@@ -27,7 +32,8 @@ pub fn score(parts: &[&Part], ctx: &TurnCtx, hist: &History, w: &RavenJudges) ->
 
     // feelings first
     if ctx.valence < 0.0 {
-        if parts.first().map(|p| p.feel < 0.0).unwrap_or(false) {
+        // (sympathy said, before any question: a sad question is not sympathy)
+        if parts.first().map(|p| p.feel < 0.0 && !p.question).unwrap_or(false) {
             s += w.feelings_first;
             why.push("feelings first");
         } else {
@@ -107,6 +113,10 @@ pub fn score(parts: &[&Part], ctx: &TurnCtx, hist: &History, w: &RavenJudges) ->
             why.push("stays with how you feel");
         }
     }
+    // the model's own questions: as likely as it found them
+    for p in parts.iter().filter(|p| p.prob > 0.0) {
+        s += w.model * p.prob.ln();
+    }
     // natural
     for p in parts {
         // (an answer to a question asked again is said again)
@@ -120,6 +130,12 @@ pub fn score(parts: &[&Part], ctx: &TurnCtx, hist: &History, w: &RavenJudges) ->
     if let (Some(first), Some(last)) = (parts.first(), hist.first.last()) {
         if &first.text == last {
             s += w.repeat;
+        }
+    }
+    // not the same kind of question twice running ("do you feel ...?" again)
+    if let (Some(q), Some(last)) = (parts.iter().find(|p| p.question), hist.last_form.as_ref()) {
+        if &form_of(&q.text) == last {
+            s += w.same_form;
         }
     }
     let words: usize = parts.iter().map(|p| p.text.split_whitespace().count()).sum();

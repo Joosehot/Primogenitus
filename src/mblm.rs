@@ -19,7 +19,10 @@
 //! prompt by beam search, sentence by sentence, about one topic; `next` gives
 //! the distribution of the next word; `score` gives every word of a text its
 //! probability, the text's perplexity, and how much of it lies inside the
-//! motor at all (coverage), honestly.
+//! motor at all (coverage), honestly. `questions` is the model asking: every
+//! question of the question grammar it could ask about the person or a thing
+//! of theirs, filled from the lines, each with its probability; Raven's
+//! follow-up questions are these, not sentences written down beforehand.
 
 use crate::config::Config;
 use crate::lexicon;
@@ -119,6 +122,11 @@ impl<'a> Mblm<'a> {
             })
             .unwrap_or(false);
         Para { cx, person, num: None, sentences: 0, used: HashSet::new() }
+    }
+
+    /// A verb that says almost nothing on its own ("act", "make", "get").
+    fn light(&self, v: u32) -> bool {
+        self.cfg.mblm.light_verbs.iter().any(|w| w == &self.net.node(v).text)
     }
 
     fn text(&self, n: u32) -> &str {
@@ -280,6 +288,9 @@ impl<'a> Mblm<'a> {
                 }
                 let form = if num == Num::Sg { Form::ThirdSg } else { Form::Base };
                 for (v, s, why, sense) in p.cx.lined_ranks(Kind::SubjectOf, Pos::Verb, |n| n.frames & (INTRANSITIVE | TRANSITIVE) != 0) {
+                    if self.light(v) {
+                        continue;
+                    }
                     let Some(word) = self.sure_form(v, form) else { continue };
                     let intr = self.net.node(v).frames & INTRANSITIVE != 0;
                     out.push(self.tok(word, St::Verb { verb: v, sense, intr }, s + pr.does, why, Some(v), p));
@@ -552,4 +563,199 @@ pub struct Score {
     pub words: Vec<(String, Option<f64>, Vec<(String, f64)>)>,
     pub perplexity: f64,
     pub coverage: f64,
+}
+
+// ---------------------------------------------------------------- questions
+
+/// Who a question is about.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Who {
+    /// the person: how they feel (a feeling word), a thing (they may have,
+    /// like), a deed (they do)
+    You { feel: Option<u32>, thing: Option<u32>, deed: Option<u32> },
+    /// something of theirs (past: it is gone)
+    Your { noun: u32, past: bool },
+}
+
+/// What a yes says (Raven remembers it).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Confirm {
+    Feel(u32),
+    Has(u32),
+    Likes(u32),
+    Is(u32, u32),
+    Does(u32, u32),
+    Kind(u32, u32),
+}
+
+/// What the answer to a question will be.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Waits {
+    Confirm(Confirm),
+    Story,
+    Describe(u32),
+    PetName(u32),
+}
+
+/// A question the model asks: its words, its probability among every
+/// question it could ask here, the lines it stands on, what it waits for.
+#[derive(Clone, Debug)]
+pub struct Asked {
+    pub text: String,
+    pub p: f64,
+    pub why: Vec<String>,
+    pub waits: Waits,
+    pub about: Vec<u32>,
+}
+
+impl<'a> Mblm<'a> {
+    fn object_word(&self, n: u32) -> String {
+        let node = self.net.node(n);
+        if node.mass {
+            node.text.clone()
+        } else if let Some(pl) = self.sure_form(n, Form::Plural) {
+            pl
+        } else {
+            format!("{} {}", det_text(self.det_for(&node.text)), node.text)
+        }
+    }
+
+    fn a(&self, n: u32) -> String {
+        let t = &self.net.node(n).text;
+        format!("{} {t}", det_text(self.det_for(t)))
+    }
+
+    /// Feeling words that may go with this one: the feeling words of the same
+    /// feel (the anchors in rules.toml are the vocabulary), each scored by how
+    /// near the network finds it from this one, and how familiar it is.
+    fn near_feelings(&self, feel: u32) -> Vec<(u32, f64, String)> {
+        let f = &self.cfg.raven.feeling;
+        let v = crate::raven::feeling::valence(self.net, f, feel).unwrap_or(-1.0);
+        let words = if v < 0.0 { &f.bad_adjectives } else { &f.good_adjectives };
+        let cx = Ctx::new(self.net, self.cfg, feel);
+        let mut out: Vec<(u32, f64, String)> = Vec::new();
+        for w in words {
+            let Some(a) = self.net.base(w, Pos::Adj) else { continue };
+            if a == feel || !self.net.node(a).sure || out.iter().any(|x| x.0 == a) {
+                continue;
+            }
+            let near = cx.meaning(a).max(-8.0);
+            out.push((a, cx.familiarity(a) + 0.5 * near, format!("{} -near-> {}", self.text(feel), cx.path(a))));
+        }
+        out
+    }
+
+    /// Every question the model could ask here, each with its probability (a
+    /// softmax over all of them), the likeliest first; none that touches a
+    /// word in `asked` (asked about already).
+    pub fn questions(&self, who: Who, pet_name: Option<&str>, asked: &HashSet<u32>, k: usize) -> Vec<Asked> {
+        let q = &self.cfg.mblm;
+        let mut all: Vec<(f64, Asked)> = Vec::new();
+        let mut add = |score: f64, words: Vec<String>, why: Vec<String>, waits: Waits, about: Vec<u32>| {
+            if about.iter().any(|a| asked.contains(a)) {
+                return;
+            }
+            let mut text = words.join(" ");
+            text = text[..1].to_uppercase() + &text[1..];
+            text.push('?');
+            all.push((score, Asked { text, p: 0.0, why, waits, about }));
+        };
+        match who {
+            Who::Your { noun, past } => {
+                let p = self.para(noun);
+                let subject = match pet_name {
+                    Some(n) => n.to_string(),
+                    None => format!("your {}", self.text(noun)),
+                };
+                let (aux, be) = if past { ("did", "was") } else { ("does", "is") };
+                // does your cat chase mice? / what does your cat chase?
+                // (of something lost, only how it was is asked: never what it did)
+                for (v, s, why, sense) in p.cx.lined_ranks(Kind::SubjectOf, Pos::Verb, |n| n.frames & (INTRANSITIVE | TRANSITIVE) != 0) {
+                    if past || self.light(v) {
+                        continue;
+                    }
+                    let verb = self.text(v).to_string();
+                    let objs = self.objects(v, sense, &p);
+                    if let Some((o, os, owhy)) = objs.first() {
+                        add(s + os + q.ask_does, vec![aux.into(), subject.clone(), verb.clone(), self.object_word(*o)],
+                            vec![why.clone(), owhy.clone()], Waits::Confirm(Confirm::Does(noun, v)), vec![v, *o]);
+                        add(s + q.ask_what, vec!["what".into(), aux.into(), subject.clone(), verb.clone()], vec![why.clone()], Waits::Story, vec![v]);
+                    } else if self.net.node(v).frames & INTRANSITIVE != 0 {
+                        add(s + q.ask_does, vec![aux.into(), subject.clone(), verb], vec![why], Waits::Confirm(Confirm::Does(noun, v)), vec![v]);
+                    }
+                }
+                // is your cat playful?
+                for (a, s, why) in p.cx.lined(Kind::ModifiedBy, Pos::Adj, predicative) {
+                    add(s + q.ask_is, vec![be.into(), subject.clone(), self.text(a).into()], vec![why], Waits::Confirm(Confirm::Is(noun, a)), vec![a]);
+                }
+                // is your cat a siamese? (a kind of it)
+                for l in self.net.lines[noun as usize].iter().filter(|l| l.kind == Kind::Hyponym && l.rank == 0 && !past) {
+                    if !p.cx.usable(l.to, Pos::Noun) || self.net.node(l.to).mass {
+                        continue;
+                    }
+                    let why = format!("{} -has kind-> {}", self.text(noun), self.text(l.to));
+                    add(p.cx.familiarity(l.to) + q.ask_kind, vec![be.into(), subject.clone(), self.a(l.to)], vec![why],
+                        Waits::Confirm(Confirm::Kind(noun, l.to)), vec![l.to]);
+                }
+                // what is your cat like?
+                add(q.ask_like, vec!["what".into(), be.into(), subject.clone(), "like".into()], vec![], Waits::Describe(noun), vec![]);
+                // what is your cat's name? (an animal of theirs whose name was not told)
+                if self.net.node(noun).animate && pet_name.is_none() && !past {
+                    let poss = format!("your {}{}s", self.text(noun), '\u{27}');
+                    add(q.ask_name, vec!["what".into(), "is".into(), poss, "name".into()], vec![], Waits::PetName(noun), vec![]);
+                }
+            }
+            Who::You { feel, thing, deed } => {
+                if let Some(m) = feel {
+                    // do you feel lonely? / are you lonely? / what makes you feel sad?
+                    for (a, s, why) in self.near_feelings(m) {
+                        let word = self.text(a).to_string();
+                        add(s + q.ask_feel, vec!["do".into(), "you".into(), "feel".into(), word], vec![why], Waits::Confirm(Confirm::Feel(a)), vec![a]);
+                    }
+                    let mood = self.text(m).to_string();
+                    add(q.ask_makes, vec!["what".into(), "makes".into(), "you".into(), "feel".into(), mood.clone()], vec![], Waits::Story, vec![m]);
+                    add(q.ask_since, vec!["how".into(), "long".into(), "have".into(), "you".into(), "felt".into(), mood], vec![], Waits::Story, vec![]);
+                    let bad = crate::raven::feeling::valence(self.net, &self.cfg.raven.feeling, m).map(|v| v < 0.0).unwrap_or(false);
+                    if bad {
+                        add(q.ask_happened, vec!["what".into(), "happened".into()], vec![], Waits::Story, vec![]);
+                    }
+                }
+                if let Some(x) = thing {
+                    // do you have a cat? / do you like cats?
+                    let s = Ctx::new(self.net, self.cfg, x).familiarity(x);
+                    if !self.net.node(x).mass {
+                        add(s + q.ask_have, vec!["do".into(), "you".into(), "have".into(), self.a(x)], vec![], Waits::Confirm(Confirm::Has(x)), vec![]);
+                    }
+                    add(s + q.ask_like_it, vec!["do".into(), "you".into(), "like".into(), self.object_word(x)], vec![], Waits::Confirm(Confirm::Likes(x)), vec![]);
+                }
+                if let Some(v) = deed {
+                    // what do you code? / do you code programs?
+                    let p = self.para(v);
+                    let objs = self.objects(v, 0, &p);
+                    for (o, os, owhy) in objs.iter().take(6) {
+                        add(os + q.ask_does, vec!["do".into(), "you".into(), self.text(v).into(), self.object_word(*o)], vec![owhy.clone()],
+                            Waits::Story, vec![*o]);
+                    }
+                    if !objs.is_empty() {
+                        add(q.ask_what_deed, vec!["what".into(), "do".into(), "you".into(), self.text(v).into()], vec![], Waits::Story, vec![]);
+                    }
+                }
+            }
+        }
+        // the probabilities: a softmax over every question it could ask
+        let temp = q.temperature.max(1e-3);
+        let m = all.iter().map(|x| x.0).fold(f64::NEG_INFINITY, f64::max);
+        let z: f64 = all.iter().map(|x| ((x.0 - m) / temp).exp()).sum();
+        let mut out: Vec<Asked> = all
+            .into_iter()
+            .map(|(s, mut a)| {
+                a.p = ((s - m) / temp).exp() / z;
+                a
+            })
+            .collect();
+        out.sort_by(|a, b| b.p.partial_cmp(&a.p).unwrap().then(a.text.cmp(&b.text)));
+        out.dedup_by(|a, b| a.text == b.text);
+        out.truncate(k);
+        out
+    }
 }

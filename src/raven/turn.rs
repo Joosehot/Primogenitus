@@ -53,6 +53,8 @@ pub enum Expect {
     Topic,
     /// "how often do you code?": the verb
     Often(u32),
+    /// a yes/no question the model asked: what a yes says
+    Confirm(crate::mblm::Confirm),
 }
 
 /// What the turn is read in the light of.
@@ -103,6 +105,8 @@ pub enum Turn {
     Happened { noun: u32, event: u32 },
     Opinion { noun: u32, adj: u32 },
     Yes,
+    /// "yes, I want to": wanting it (to talk, most often)
+    YesWant,
     No,
     DontKnow,
     Laugh,
@@ -267,7 +271,10 @@ fn clause(net: &Network, w: &[String], o: &[String], cx: &Context) -> Option<Tur
                                   &["i", "would", "rather", "not"], &["maybe", "later"], &["it", "is", "not"], &["it", "was", "not"],
                                   &["i", "am", "not"], &["not", "at", "all"]];
     let tail_in = |k: usize, list: &[&[&str]]| list.iter().any(|t| s[k..].iter().copied().eq(t.iter().copied()));
+    const WANT: &[&[&str]] = &[&["i", "want", "to"], &["i", "would", "like", "to"], &["please"], &["i", "would"], &["let", "us"], &["lets"]];
     match s[0] {
+        "yes" | "yeah" | "yep" | "sure" | "ok" | "okay" if n > 1 && tail_in(1, WANT) => return Some(YesWant),
+        _ if tail_in(0, &[&["i", "want", "to"], &["i", "would", "like", "to"]]) => return Some(YesWant),
         "yes" | "yeah" | "yep" | "sure" | "ok" | "okay" if n > 1 && tail_in(1, YES_TAIL) => return Some(Yes),
         "no" | "nope" | "nah" if n > 1 && tail_in(1, NO_TAIL) => return Some(No),
         _ if tail_in(0, &[&["i", "want", "to"], &["i", "would", "like", "to"], &["i", "do"], &["it", "is"], &["it", "really", "is"],
@@ -297,6 +304,10 @@ fn clause(net: &Network, w: &[String], o: &[String], cx: &Context) -> Option<Tur
             let rest = s[k + 1..k + len].join(" ");
             for v in net.lookup(head).iter().map(|&q| net.node(q)).filter(|x| x.pos == Pos::Verb && matches!(x.form, Form::Past | Form::PastPart)) {
                 let base = &net.node(v.lemma).text;
+                // "I am fine" is no event ("am" is a form of "be", "fine" also a noun)
+                if matches!(base.as_str(), "be" | "have" | "do") || !v.sure {
+                    continue;
+                }
                 let phrase = if len == 2 { format!("{base} {rest}") } else { base.clone() };
                 if let Some(event) = net.base(&phrase, Pos::Verb) {
                     // what follows may only be what it happened to ("my job", "with her")
@@ -453,10 +464,16 @@ fn answer(net: &Network, text: &str, cx: &Context) -> Option<Vec<Turn>> {
     while a < w.len() && LEAD.contains(&w[a].as_str()) {
         a += 1;
     }
-    // "fine, thanks", "good and you?"
+    // "fine, thanks", "good and you?", "fine, I guess"
     let mut b = w.len();
-    while b > a && matches!(w[b - 1].as_str(), "thanks" | "thank" | "you" | "and" | "too" | "now" | "today" | "though") {
-        b -= 1;
+    loop {
+        if b > a && matches!(w[b - 1].as_str(), "thanks" | "thank" | "you" | "and" | "too" | "now" | "today" | "though") {
+            b -= 1;
+        } else if let Some(h) = HEDGE.iter().find(|h| b >= a + 1 + h.len() && w[b - h.len()..b].iter().map(|x| x.as_str()).eq(h.iter().copied())) {
+            b -= h.len();
+        } else {
+            break;
+        }
     }
     let (w, o) = (&w[a..b], &o[a..b]);
     let n = w.len();
@@ -577,6 +594,11 @@ pub fn read(net: &Network, text: &str, cx: &Context) -> (Vec<Turn>, bool) {
         for i in 0..=low.len() {
             if i == low.len() || (cut(&low[i]) && i > start) {
                 let (w, o) = (&low[start..i], &orig[start..i]);
+                // a clause of hedges alone ("fine, I guess") adds nothing
+                if HEDGE.iter().any(|h| w.iter().map(|x| x.as_str()).eq(h.iter().copied())) {
+                    start = i + 1;
+                    continue;
+                }
                 // a clause on its own may still be a question ("and what do dogs eat")
                 // "she is playful and friendly": a bare adjective goes on with the clause before
                 let more = match (out.last(), adj_at(net, w, 0, w.len())) {
