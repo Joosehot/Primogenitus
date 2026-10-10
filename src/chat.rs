@@ -124,6 +124,10 @@ impl<'a> Chat<'a> {
             },
             Question::PartNamed { kind, of } => self.part_named(kind, of),
             Question::Rules => Reply::plain(self.cfg.raven.system.prompt.trim().to_string()),
+            Question::Me(key) => Reply {
+                text: self.cfg.raven.system.identity.get(key).cloned().unwrap_or_else(|| c.who_am_i.clone()),
+                why: vec![format!("raven -knows who it is-> {key}")],
+            },
             Question::Forget => {
                 *self = Chat::new(self.net, self.cfg);
                 Reply::plain(self.cfg.raven.system.forget_reply.clone())

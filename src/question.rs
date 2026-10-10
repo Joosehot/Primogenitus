@@ -105,6 +105,8 @@ pub enum Question {
     Define(Subject),
     /// what are your rules
     Rules,
+    /// about itself: the key of its answer in [raven.system.identity]
+    Me(&'static str),
     /// forget what I told you
     Forget,
     /// how are you
@@ -245,11 +247,42 @@ pub fn read(net: &Network, text: &str) -> Question {
         | ["good", "morning" | "afternoon" | "evening"] => return Greeting,
         ["bye" | "goodbye"] | ["see", "you"] | ["see", "you", "later"] | ["good", "night"] => return Goodbye,
         ["thanks" | "thx"] | ["thank", "you"] | ["thanks", "a", "lot"] => return Thanks,
-        ["help"] | ["what", "can", "you", "do"] | ["what", "can", "i", "ask"] | ["what", "can", "i", "ask", "you"] => return Help,
+        ["what", "can", "you", "do"] => return Me("can"),
+        ["help"] | ["what", "can", "i", "ask"] | ["what", "can", "i", "ask", "you"] => return Help,
         ["what", "else"] | ["anything", "else"] | ["more"] | ["tell", "me", "more"] => return More,
-        ["who", "are", "you"] | ["what", "are", "you"] | ["what", "is", "your", "name"] | ["who", "is", "primo"]
-        | ["what", "is", "primo"] | ["who", "is", "primogenitus"] | ["what", "is", "primogenitus"]
-        | ["what", "is", "your", "full", "name"] => return WhoAreYou,
+        ["who", "are", "you"] => return WhoAreYou,
+        // about itself (its identity): "who made you", "how do you work", "what is raven"
+        ["who", "made" | "created" | "built" | "wrote" | "programmed" | "invented" | "designed", "you"]
+        | ["who", "is", "your", "creator" | "maker" | "author" | "father" | "mother" | "developer" | "programmer"]
+        | ["who", "are", "your", "creators" | "makers" | "parents"] => return Me("made_by"),
+        ["how", "old", "are", "you"] | ["when", "were", "you", "made" | "born" | "created" | "built"] | ["when", "is", "your", "birthday"]
+        | ["what", "is", "your", "age"] => return Me("born"),
+        ["how", "do", "you", "work"] | ["how", "do", "you", "think"] | ["how", "were", "you", "made" | "built"] | ["how", "do", "you", "answer"]
+        | ["how", "does", "it", "work"] | ["how", "do", "you", "talk"] => return Me("how"),
+        ["what", "kind", "of", "ai" | "thing" | "program" | "bot" | "chatbot", "are", "you"] | ["what", "exactly", "are", "you"] => return Me("what"),
+        ["are", "you", "an", "ai"] | ["are", "you", "ai"] | ["are", "you", "artificial", "intelligence"] | ["are", "you", "a", "neural", "network"]
+        | ["are", "you", "an", "llm"] | ["are", "you", "a", "language", "model"] | ["are", "you", "trained"] => return Me("ai"),
+        ["are", "you", "a", "chatbot" | "bot"] | ["what", "are", "you"] => return Me("what"),
+        ["what", "is", "your", "purpose" | "goal" | "job"] | ["why", "do", "you", "exist"] | ["why", "were", "you", "made" | "created" | "built"]
+        | ["what", "are", "you", "for"] => return Me("purpose"),
+        ["what" | "who", "is", "raven"] | ["what", "does", "raven", "do"] => return Me("raven"),
+        ["what", "is", "mblm"] | ["what", "is", "a", "mblm"] | ["what", "is", "your", "language", "model"] => return Me("mblm"),
+        ["what", "is", "the", "motor"] | ["what", "is", "your", "motor"] => return Me("motor"),
+        ["what" | "who", "is", "primo"] | ["what" | "who", "is", "primogenitus"] | ["what", "is", "your", "name"] | ["what", "is", "your", "full", "name"] => {
+            return Me("name")
+        }
+        ["what", "are", "your", "parts"] | ["what", "parts", "do", "you", "have"] | ["what", "are", "you", "built", "from"] => return Me("parts"),
+        ["what", "are", "you", "made", "of" | "from"] | ["what", "is", "inside", "you"] => return Me("made_of"),
+        ["where", "do", "you", "live"] | ["where", "are", "you"] | ["where", "are", "you", "from"] | ["where", "do", "you", "come", "from"]
+        | ["where", "is", "your", "code"] => return Me("home"),
+        ["what", "can", "you", "not", "do"] | ["what", "can", "not", "you", "do"] | ["what", "are", "your", "limits"] | ["what", "can't", "you", "do"] => {
+            return Me("cannot")
+        }
+        ["do", "you", "have", "feelings" | "emotions" | "a", "heart"] | ["can", "you", "feel"] | ["do", "you", "feel", "anything"] => return Me("feelings"),
+        ["what", "do", "you", "like"] | ["what", "is", "your", "favorite", ..] | ["what", "is", "your", "favourite", ..] => return Me("likes"),
+        ["do", "you", "remember", "things"] | ["how", "much", "do", "you", "remember"] | ["what", "do", "you", "remember", "about", "yourself"]
+        | ["how", "does", "your", "memory", "work"] => return Me("memory"),
+        ["what", "version", "are", "you"] | ["which", "version", "are", "you"] => return Me("version"),
         ["what", "are", "your", "rules"] | ["what", "is", "your", "system", "prompt"] | ["show", "me", "your", "rules"] | ["your", "rules"]
         | ["what", "rules", "do", "you", "follow"] => return Rules,
         ["forget", "me"] | ["forget", "everything"] | ["forget", "what", "i", "told", "you"] | ["please", "forget", "everything"]

@@ -82,6 +82,8 @@ pub struct RavenSystem {
     pub advice_words: Vec<String>,
     pub advice_reply: String,
     pub forget_reply: String,
+    /// who it is: its answers about itself
+    pub identity: std::collections::BTreeMap<String, String>,
 }
 
 /// How much of the conversation is kept as it was said; past it, the oldest

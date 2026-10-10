@@ -70,3 +70,35 @@ fn the_rules_hold() {
     assert!(r.contains("not told me"), "remembered after forgetting: {r}");
     assert!(r.matches('?').count() <= 1, "two questions: {r}");
 }
+
+/// It knows who it is, and talks about itself.
+#[test]
+fn it_knows_who_it_is() {
+    let Some((net, cfg)) = setup() else { return };
+    let mut raven = Raven::new(&net, &cfg).unwrap();
+    raven.greeting();
+    raven.reply("Joose");
+    for (q, want) in [
+        ("Who are you?", "Primo"),
+        ("Who made you?", "Joose"),
+        ("How old are you?", "2026"),
+        ("How do you work?", "word"),
+        ("What are you?", "chatbot"),
+        ("Are you an AI?", "not trained"),
+        ("Are you a chatbot?", "chatbot"),
+        ("What is your purpose?", "kindly"),
+        ("What is Raven?", "talks with you"),
+        ("What is MBLM?", "language model"),
+        ("What is your name?", "Primogenitus"),
+        ("What are you made of?", "WordNet"),
+        ("Where do you live?", "computer"),
+        ("What can you do?", "tell you"),
+        ("What can't you do?", "cannot"),
+        ("Do you have feelings?", "no feelings"),
+        ("Why do you exist?", "kindly"),
+    ] {
+        let r = raven.reply(q).text;
+        println!("{q} -> {r}");
+        assert!(r.contains(want), "{q}: {r}");
+    }
+}

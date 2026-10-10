@@ -560,6 +560,9 @@ impl<'a> Raven<'a> {
                     // about itself: more than one way to say it, so asking again is not answered with a repeat
                     if q0 == Question::WhoAreYou {
                         bodies.extend(self.parts("who_am_i_more", &b, |p| p.answer = true));
+                        if let Some(t) = self.cfg.raven.system.identity.get("who") {
+                            bodies.push(Part { text: t.clone(), answer: true, ..Default::default() });
+                        }
                     }
                     let what_is = matches!(q0, Question::Ask { intent: crate::question::Intent::WhatIs, .. });
                     let r = self.chat.answer_question(q0);
