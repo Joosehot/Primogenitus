@@ -141,6 +141,7 @@ pub struct Chat {
     pub who_am_i: String,
     pub how_am_i: String,
     pub cannot: String,
+    pub inherit_stop: Vec<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -151,6 +152,7 @@ pub struct Build {
     pub frame_senses: usize,
     pub mass_lexfiles: Vec<u8>,
     pub count_evidence: usize,
+    pub mass_seen: usize,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -179,6 +181,12 @@ pub struct Lines {
     pub has_object: f32,
     pub modifies: f32,
     pub modified_by: f32,
+    pub eats: f32,
+    pub eaten_by: f32,
+    pub lives_in: f32,
+    pub home_of: f32,
+    pub used_for: f32,
+    pub use_of: f32,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -266,6 +274,12 @@ impl Config {
             HasObject => l.has_object,
             Modifies => l.modifies,
             ModifiedBy => l.modified_by,
+            Eats => l.eats,
+            EatenBy => l.eaten_by,
+            LivesIn => l.lives_in,
+            HomeOf => l.home_of,
+            UsedFor => l.used_for,
+            UseOf => l.use_of,
         }
     }
 }

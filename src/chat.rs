@@ -8,6 +8,11 @@
 
 use crate::config::Config;
 use crate::network::{Form, Kind, Network, Pos};
+
+fn cap(s: &str) -> String {
+    let mut c = s.chars();
+    c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
+}
 use crate::question::{self, Intent, Question, Subject};
 use crate::rules::{judges, Verdict};
 use crate::search::{self, Cand, Ctx, Det, Np, Num, Pred, Tense};
@@ -105,6 +110,26 @@ impl<'a> Chat<'a> {
             Question::Help => Reply::plain(c.help.clone()),
             Question::Unknown(why) => Reply::plain(why),
             Question::WhoAreYou => Reply::plain(c.who_am_i.clone()),
+            Question::WhereLive(topic) => match self.resolve(topic) {
+                Ok(t) => self.where_live(t),
+                Err(r) => r,
+            },
+            Question::UsedFor(topic) => match self.resolve(topic) {
+                Ok(t) => self.used_for(t),
+                Err(r) => r,
+            },
+            Question::MadeOf(topic) => match self.resolve(topic) {
+                Ok(t) => self.made_of(t),
+                Err(r) => r,
+            },
+            Question::PartNamed { kind, of } => self.part_named(kind, of),
+            Question::Define(topic) => match topic {
+                Subject::Noun(t) => self.define(t),
+                Subject::Pronoun => match self.topic {
+                    Some(t) => self.define(t),
+                    None => Reply::plain(c.no_pronoun.clone()),
+                },
+            },
             // what is remembered of a conversation is Raven's (primogenitus chat, the page)
             Question::Recall(_) | Question::MyName | Question::PetNameOf(_) => {
                 Reply::plain("I remember a conversation only while we have one: talk with me in the chat.")
@@ -337,10 +362,182 @@ impl<'a> Chat<'a> {
         Reply::plain(self.cfg.me.not_kind.clone())
     }
 
+    /// The first of the topic's kinds (itself first) with lines of this kind:
+    /// (the kind, its lines' targets best first, the path to it).
+    fn inherited(&self, topic: u32, kind: Kind) -> Option<(u32, Vec<u32>, Vec<String>)> {
+        for (k, _) in kinds(self.net, topic, 16) {
+            // a kind so general that what is said of it says nothing of the topic
+            if self.cfg.chat.inherit_stop.iter().any(|w| w == &self.net.node(k).text) {
+                break;
+            }
+            let mut to: Vec<(u32, u8, u16)> = self.net.lines[k as usize]
+                .iter()
+                .filter(|l| l.kind == kind && self.net.node(l.to).pos != Pos::Adv)
+                .map(|l| (l.to, l.rank, self.net.node(l.to).fam))
+                .collect();
+            if to.is_empty() {
+                continue;
+            }
+            to.sort_by_key(|&(n, r, f)| (r, std::cmp::Reverse(f), n));
+            let path = kind_path(self.net, topic, k)
+                .map(|p| vec![p.iter().map(|&x| self.net.node(x).text.clone()).collect::<Vec<_>>().join(" -is a-> ")])
+                .unwrap_or_default();
+            return Some((k, to.into_iter().map(|x| x.0).collect(), path));
+        }
+        None
+    }
+
+    /// How a noun stands after a preposition or as an object: "water", "trees", "the sea", "Asia".
+    fn np_for(&self, n: u32) -> String {
+        let node = self.net.node(n);
+        if node.mass || node.proper {
+            return node.text.clone();
+        }
+        if matches!(node.text.as_str(), "sea" | "ocean" | "desert" | "arctic" | "tropics" | "ground" | "air" | "sky" | "forest" | "jungle" | "wild") {
+            return format!("the {}", node.text);
+        }
+        match self.net.form(n, Form::Plural) {
+            Some(p) if p.sure => p.text.clone(),
+            _ => format!("the {}", node.text),
+        }
+    }
+
+    /// The topic as a sentence's subject, with the verb agreeing: ("Fish", plural).
+    fn subject(&self, t: u32) -> (String, Num) {
+        let node = self.net.node(t);
+        if node.mass {
+            return (cap(&node.text), Num::Sg);
+        }
+        match self.net.form(t, Form::Plural) {
+            Some(p) if p.sure => (cap(&p.text), Num::Pl),
+            _ => (cap(&format!("{} {}", crate::lexicon::article(&node.text, &self.cfg.article), node.text)), Num::Sg),
+        }
+    }
+
+    /// A sentence written here, said only if the grammar check reads it.
+    fn checked(&self, text: String, why: Vec<String>) -> Option<Reply> {
+        crate::parser::check(self.net, self.cfg, &text).is_ok().then_some(Reply { text, why })
+    }
+
+    /// "Where do fish live?": the lives-in lines read from the definitions, inherited.
+    fn where_live(&mut self, t: u32) -> Reply {
+        let (subj, num) = self.subject(t);
+        if let Some((k, places, mut why)) = self.inherited(t, Kind::LivesIn) {
+            why.insert(0, format!("{} -lives in-> {}", self.net.node(k).text, self.net.node(places[0]).text));
+            let verb = if num == Num::Pl { "live" } else { "lives" };
+            // "in water", "on land"
+            let place = |p: u32| match self.net.node(p).text.as_str() {
+                "land" | "ground" => format!("on {}", self.net.node(p).text),
+                _ => format!("in {}", self.np_for(p)),
+            };
+            let mut ps: Vec<String> = places.iter().take(2).map(|&p| place(p)).collect();
+            ps.dedup();
+            for text in [format!("{subj} {verb} {}.", ps.join(" and ")), format!("{subj} {verb} {}.", ps[0])] {
+                if let Some(r) = self.checked(text, why.clone()) {
+                    return r;
+                }
+            }
+        }
+        Reply::plain(format!("I do not know where {} live: no definition in my dictionary says.", self.subject(t).0.to_lowercase()))
+    }
+
+    /// "What is a hammer used for?"
+    fn used_for(&mut self, t: u32) -> Reply {
+        let (subj, num) = self.subject(t);
+        let be = if num == Num::Pl { "are" } else { "is" };
+        if let Some((k, uses, mut why)) = self.inherited(t, Kind::UsedFor) {
+            for &u in uses.iter().take(3) {
+                let what = match self.net.node(u).pos {
+                    Pos::Verb => match self.net.form(u, Form::Ing) {
+                        Some(g) => g.text.clone(),
+                        None => continue,
+                    },
+                    _ => self.np_for(u),
+                };
+                let mut w = why.clone();
+                w.insert(0, format!("{} -used for-> {}", self.net.node(k).text, self.net.node(u).text));
+                if let Some(r) = self.checked(format!("{subj} {be} used for {what}."), w) {
+                    return r;
+                }
+            }
+            why.clear();
+        }
+        Reply::plain(format!("I do not know what {} {be} used for: no definition in my dictionary says.", subj.to_lowercase()))
+    }
+
+    /// "What is bread made of?"
+    fn made_of(&mut self, t: u32) -> Reply {
+        let (subj, num) = self.subject(t);
+        let be = if num == Num::Pl { "are" } else { "is" };
+        if let Some((k, stuff, why)) = self.inherited(t, Kind::MadeOf) {
+            for &m in stuff.iter().take(3) {
+                let mut w = why.clone();
+                w.insert(0, format!("{} -made of-> {}", self.net.node(k).text, self.net.node(m).text));
+                if let Some(r) = self.checked(format!("{subj} {be} made of {}.", self.np_for(m)), w) {
+                    return r;
+                }
+            }
+        }
+        Reply::plain(format!("I do not know what {} {be} made of: no line in my network says.", subj.to_lowercase()))
+    }
+
+    /// "What is the capital of Finland?": a part of the named thing that is of that kind.
+    fn part_named(&mut self, kind: u32, of: u32) -> Reply {
+        let name = self.net.node(of).text.clone();
+        let kind_text = self.net.node(kind).text.clone();
+        // the parts of that kind, each by its sense's own main name ("Helsinki", not
+        // "Helsingfors", "Finnish capital" or "capital of Finland")
+        let mut found: Vec<(u32, Vec<u32>)> = self.net.lines[of as usize]
+            .iter()
+            .filter(|l| l.kind == Kind::HasPart)
+            .filter(|l| {
+                let t = &self.net.node(l.to).text;
+                !t.contains(" of ") && !t.to_lowercase().contains(&kind_text)
+            })
+            .filter_map(|l| kind_path(self.net, l.to, kind).map(|p| (l.to, p)))
+            .collect();
+        found.sort_by_key(|(x, _)| (!self.net.node(*x).head, self.net.node(*x).text.split(' ').count(), *x));
+        for (own, path) in found {
+            let part = self.net.node(own).text.clone();
+            let why = vec![
+                format!("{name} -has part-> {part}"),
+                path.iter().map(|&x| self.net.node(x).text.clone()).collect::<Vec<_>>().join(" -is a-> "),
+            ];
+            if let Some(r) = self.checked(format!("The {kind_text} of {name} is {part}."), why) {
+                return r;
+            }
+        }
+        Reply::plain(format!("I do not know the {kind_text} of {name}: no line in my network says."))
+    }
+
+    /// The dictionary's own definition, quoted as it is.
+    fn define(&mut self, t: u32) -> Reply {
+        let word = self.net.node(t).text.clone();
+        match self.net.def(t) {
+            Some(d) => Reply { text: format!("My dictionary says {word} is \"{d}\"."), why: vec![format!("{word} -defined as-> {d}")] },
+            None => Reply::plain(format!("My dictionary has no definition of {word}.")),
+        }
+    }
+
     /// "What do dogs eat?": the topic (or its kind) does the verb in the
     /// examples, and in that sense the verb is done to these.
     fn object_of(&mut self, topic: u32, verb: u32) -> Reply {
         let cx = Ctx::new(self.net, self.cfg, topic);
+        // what it eats: read from the definitions ("flesh-eating", "feeds on fish"), inherited
+        if matches!(self.net.node(verb).text.as_str(), "eat" | "feed" | "consume" | "devour") {
+            if let Some((k, food, mut why)) = self.inherited(topic, Kind::Eats) {
+                let (subj, num) = self.subject(topic);
+                let v = if num == Num::Pl { "eat" } else { "eats" };
+                let mut fs: Vec<String> = food.iter().take(2).map(|&f| self.np_for(f)).collect();
+                fs.dedup();
+                why.insert(0, format!("{} -eats-> {}", self.net.node(k).text, self.net.node(food[0]).text));
+                for text in [format!("{subj} {v} {}.", fs.join(" and ")), format!("{subj} {v} {}.", fs[0])] {
+                    if let Some(r) = self.checked(text, why.clone()) {
+                        return r;
+                    }
+                }
+            }
+        }
         let (name, num) = self.named(topic);
         let vtext = &self.net.node(verb).text;
         let doing = if num == Num::Pl { format!("{name} {vtext}") } else { format!("{name} {}", self.net.form(verb, Form::ThirdSg).map(|n| n.text.as_str()).unwrap_or(vtext)) };

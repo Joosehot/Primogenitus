@@ -557,6 +557,14 @@ fn answer(net: &Network, text: &str, cx: &Context) -> Option<Vec<Turn>> {
     }
 }
 
+/// Whether a turn asks something: a question mark, or a question word first.
+pub fn is_question(text: &str) -> bool {
+    let first = words(text).0.first().cloned().unwrap_or_default();
+    text.trim_end().ends_with('?')
+        || matches!(first.as_str(), "what" | "who" | "whom" | "where" | "when" | "why" | "how" | "which" | "whose" | "is" | "are" | "do" | "does"
+            | "did" | "can" | "could" | "will" | "would" | "should" | "was" | "were")
+}
+
 /// The turn: its clauses read one by one, in the light of what Raven asked
 /// last, and whether all of them were read.
 pub fn read(net: &Network, text: &str, cx: &Context) -> (Vec<Turn>, bool) {
@@ -626,6 +634,10 @@ pub fn read(net: &Network, text: &str, cx: &Context) -> (Vec<Turn>, bool) {
     }
     // a story Raven asked for is heard, even when it cannot be read
     let personal = words(text).0.first().map(|w| matches!(w.as_str(), "i" | "we" | "my" | "our" | "he" | "she" | "it" | "they" | "his" | "her" | "their")).unwrap_or(false);
+    // a question not read is never taken for a story: it is said plainly that it was not read
+    if !all && is_question(text) {
+        return (out, false);
+    }
     if !all && (cx.expect.is_some() || personal || cx.low) {
         out.push(Turn::Heard);
         return (out, true);

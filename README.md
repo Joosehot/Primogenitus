@@ -84,6 +84,26 @@ Primogenitus: Yes. Cats are animals. Is that true of your cat too?
 
 `primogenitus ask "..."` is Primo alone (one question, one fact).
 
+## What it knows from the definitions
+
+Besides the dictionary's lines and example sentences, the build reads every
+definition (155,000) into lines: what a thing eats ("a flesh-eating mammal",
+"feeds on fish"), where it lives ("living in water", "native to Asia",
+"aquatic"), what it is used for ("used for writing", "used as a cutting
+instrument"), what it is made of, what it has ("having scales"). They are
+inherited down the is-a lines, short of the most general kinds:
+
+```
+What do dogs eat?                -> Dogs eat flesh.            (dog -is a-> canid -is a-> carnivore -eats-> flesh)
+Where do frogs live?             -> Frogs live on land and in water.
+What is a knife used for?        -> Knives are used for cutting.
+What is the capital of Finland?  -> The capital of Finland is Helsinki.
+Define love                      -> My dictionary says love is "a strong positive emotion of regard and affection".
+```
+
+"What is a dog?" is answered with the dictionary's own definition as well,
+quoted. A question it cannot read is said to be unread, never taken for a story.
+
 ## MBLM: a motor based language model
 
 Primo as a language model, word by word, with nothing trained. For any text

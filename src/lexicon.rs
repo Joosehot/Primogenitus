@@ -42,6 +42,22 @@ pub fn partitive(w: &str) -> bool {
         | "bit" | "bits" | "group" | "couple" | "variety" | "pair" | "set" | "amount" | "deal" | "plenty" | "bunch" | "handful")
 }
 
+/// Adjectives that say where something lives ("aquatic vertebrates"): the place.
+pub fn habitat(w: &str) -> Option<&'static str> {
+    Some(match w {
+        "aquatic" | "freshwater" | "waterborne" => "water",
+        "marine" | "oceanic" | "pelagic" => "sea",
+        "arboreal" => "tree",
+        "terrestrial" => "land",
+        "subterranean" | "burrowing" => "ground",
+        "desert" => "desert",
+        "arctic" => "arctic",
+        "tropical" => "tropics",
+        "nocturnal" => return None,
+        _ => return None,
+    })
+}
+
 /// "an" before a vowel sound, "a" before a consonant sound: the longest
 /// matching beginning in rules.toml decides; nothing matching means "a".
 pub fn article(word: &str, rules: &Article) -> &'static str {

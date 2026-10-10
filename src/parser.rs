@@ -72,6 +72,121 @@ fn chunk_head(net: &Network, t: &[String], mut i: usize) -> Option<u32> {
     head
 }
 
+/// A noun phrase's head from t[i] and where the phrase ends, any noun (names too).
+fn chunk(net: &Network, t: &[String], mut i: usize) -> Option<(u32, usize)> {
+    if i < t.len() && lexicon::closed(&t[i]) == Some(Closed::Det) {
+        i += 1;
+    }
+    let mut head = None;
+    while i < t.len() && lexicon::closed(&t[i]).is_none() {
+        if lexicon::partitive(&t[i]) && t.get(i + 1).map(|w| w == "of").unwrap_or(false) {
+            return chunk(net, t, i + 2);
+        }
+        let n: Vec<u32> = net
+            .lookup(&t[i])
+            .iter()
+            .map(|&q| net.node(q))
+            .filter(|n| n.pos == Pos::Noun && matches!(n.form, Form::Base | Form::Plural))
+            .map(|n| n.lemma)
+            .collect();
+        if let Some(&h) = n.iter().find(|&&h| !net.node(h).proper).or(n.first()) {
+            head = Some(h);
+        } else if adjs(net, &t[i]).is_empty() {
+            break;
+        }
+        i += 1;
+    }
+    head.map(|h| (h, i))
+}
+
+/// The heads of a noun phrase and of the ones joined to it by "and" / "or".
+fn heads(net: &Network, t: &[String], i: usize) -> Vec<u32> {
+    let mut out = Vec::new();
+    let mut at = i;
+    while let Some((h, end)) = chunk(net, t, at) {
+        out.push(h);
+        match t.get(end).map(|w| w.as_str()) {
+            Some("and") | Some("or") => at = end + 1,
+            _ => break,
+        }
+    }
+    out
+}
+
+/// Lines read from a sense's definition, for each of its words `own`:
+/// what it eats ("feeds on fish", "flesh-eating"), where it lives ("living
+/// in water", "found in Asia", "native to Africa", "aquatic"), what it is used
+/// for ("used for pounding", "used to cut"), what it is made of ("made of
+/// flour"), what it has ("having scales").
+pub fn definition_lines(net: &Network, own: &[u32], def: &str) -> Vec<(u32, Kind, u32)> {
+    let t = tokens(def);
+    let mut found: Vec<(Kind, u32)> = Vec::new();
+    for i in 0..t.len() {
+        let w = t[i].as_str();
+        let next = t.get(i + 1).map(|x| x.as_str());
+        if let Some(food) = w.strip_suffix("-eating").or_else(|| w.strip_suffix("-feeding")) {
+            found.extend(nouns(net, food).into_iter().take(1).map(|n| (Kind::Eats, n)));
+        }
+        if let Some(home) = w.strip_suffix("-dwelling") {
+            found.extend(nouns(net, home).into_iter().take(1).map(|n| (Kind::LivesIn, n)));
+        }
+        if let Some(place) = lexicon::habitat(w) {
+            found.extend(net.base(place, Pos::Noun).map(|n| (Kind::LivesIn, n)));
+        }
+        match (w, next) {
+            ("feeds" | "feeding" | "feed" | "preys" | "preying" | "prey" | "subsisting" | "subsists", Some("on")) => {
+                found.extend(heads(net, &t, i + 2).into_iter().map(|n| (Kind::Eats, n)));
+            }
+            ("eats" | "eating" | "eat" | "devours" | "devouring", _) => {
+                found.extend(heads(net, &t, i + 1).into_iter().map(|n| (Kind::Eats, n)));
+            }
+            _ => {}
+        }
+        match (w, next) {
+            ("living" | "lives" | "live" | "found" | "growing" | "grows" | "dwelling" | "occurring" | "breeding" | "nesting", Some("in" | "on" | "near")) => {
+                found.extend(heads(net, &t, i + 2).into_iter().map(|n| (Kind::LivesIn, n)));
+            }
+            ("native" | "indigenous" | "endemic", Some("to")) => found.extend(heads(net, &t, i + 2).into_iter().map(|n| (Kind::LivesIn, n))),
+            ("inhabiting" | "inhabits", _) => found.extend(heads(net, &t, i + 1).into_iter().map(|n| (Kind::LivesIn, n))),
+            ("used", Some("as")) => {
+                // "used as a cutting instrument": what it is used for is the cutting
+                let mut k = i + 2;
+                if t.get(k).map(|x| lexicon::closed(x) == Some(Closed::Det)).unwrap_or(false) {
+                    k += 1;
+                }
+                if let Some(v) = t.get(k).and_then(|x| lemmas_as(net, x, Pos::Verb, &[Form::Ing]).first().copied()) {
+                    found.push((Kind::UsedFor, v));
+                }
+            }
+            ("used" | "use", Some("for" | "in")) => {
+                // "used for pounding" (a verb), "used for cooking food", "used in surgery"
+                let v = t.get(i + 2).and_then(|x| lemmas_as(net, x, Pos::Verb, &[Form::Ing]).first().copied());
+                match v {
+                    Some(v) => found.push((Kind::UsedFor, v)),
+                    None => found.extend(heads(net, &t, i + 2).into_iter().take(1).map(|n| (Kind::UsedFor, n))),
+                }
+            }
+            ("used", Some("to")) => {
+                if let Some(v) = t.get(i + 2).and_then(|x| lemmas_as(net, x, Pos::Verb, &[Form::Base]).first().copied()) {
+                    found.push((Kind::UsedFor, v));
+                }
+            }
+            ("made" | "consisting", Some("of" | "from")) => found.extend(heads(net, &t, i + 2).into_iter().map(|n| (Kind::MadeOf, n))),
+            ("having", _) => found.extend(heads(net, &t, i + 1).into_iter().take(1).map(|n| (Kind::HasPart, n))),
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    for &me in own {
+        for &(k, n) in &found {
+            if n != me && !out.contains(&(me, k, n)) {
+                out.push((me, k, n));
+            }
+        }
+    }
+    out
+}
+
 /// Lines read from one example sentence of a sense whose words are `own`.
 pub fn example_lines(net: &Network, own: &[u32], pos: Pos, example: &str) -> Vec<(u32, Kind, u32)> {
     let t = tokens(example);
@@ -260,6 +375,18 @@ fn noun_phrases(net: &Network, cfg: &Config, t: &[String], i: usize) -> Vec<(usi
         Some("the") => (Some("the"), i + 1),
         _ => (None, i),
     };
+    // a name: "Helsinki", "New York"
+    if det.is_none() {
+        for nl in 1..=3 {
+            if i + nl > t.len() {
+                break;
+            }
+            let name = t[i..i + nl].join(" ");
+            if net.lookup(&name).iter().any(|&q| net.node(q).proper && net.node(q).pos == Pos::Noun) && !out.contains(&(i + nl, Num::Sg)) {
+                out.push((i + nl, Num::Sg));
+            }
+        }
+    }
     for with_adj in [false, true] {
         let mut k = j;
         if with_adj {
@@ -308,6 +435,18 @@ fn noun_phrases(net: &Network, cfg: &Config, t: &[String], i: usize) -> Vec<(usi
                 };
                 if ok && !out.contains(&(k + len, num)) {
                     out.push((k + len, num));
+                    // "the capital of Finland": a noun of a name
+                    if t.get(k + len).map(|w| w == "of").unwrap_or(false) {
+                        for nl in 1..=3 {
+                            if k + len + 1 + nl > t.len() {
+                                break;
+                            }
+                            let name = t[k + len + 1..k + len + 1 + nl].join(" ");
+                            if net.lookup(&name).iter().any(|&q| net.node(q).proper) && !out.contains(&(k + len + 1 + nl, num)) {
+                                out.push((k + len + 1 + nl, num));
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -341,6 +480,8 @@ fn agrees(num: Num, form: Form) -> bool {
 
 /// The grammar every sentence must parse under:
 ///   S  -> (NP | "it" | "they") VP "."
+///   (VP also: Be "used for" X, Be "made of" NP, Verb Prep NP; NP also a name,
+///   and "the" Noun "of" Name)
 ///   NP -> ("a" | "an" | "the")? Adj? Noun     (a/an: singular, its sound; none: plural,
 ///                                             or a noun that may be uncountable, singular)
 ///   VP -> Verb(intransitive) | Verb(transitive) NP | Be Adj | Be NP | Have NP
@@ -383,6 +524,21 @@ pub fn check(net: &Network, cfg: &Config, sentence: &str) -> Result<String> {
                 if noun_phrases(net, cfg, &t, rest).iter().any(|&(e, n2)| full(e) && n2 == num) {
                     return Ok("NP Be NP".into());
                 }
+                // "is used for pounding", "is made of flour"
+                if let Some(w2) = t.get(rest) {
+                    let after = rest + 2;
+                    if w2 == "used" && t.get(rest + 1).map(|w| w == "for").unwrap_or(false) && after < t.len() {
+                        let ing = after + 1 == t.len() && net.lookup(&t[after]).iter().any(|&q| net.node(q).pos == Pos::Verb && net.node(q).form == Form::Ing);
+                        if ing || noun_phrases(net, cfg, &t, after).iter().any(|&(e, _)| full(e)) {
+                            return Ok("NP Be used for X".into());
+                        }
+                    }
+                    if w2 == "made" && t.get(rest + 1).map(|w| w == "of" || w == "from").unwrap_or(false)
+                        && noun_phrases(net, cfg, &t, after).iter().any(|&(e, _)| full(e))
+                    {
+                        return Ok("NP Be made of NP".into());
+                    }
+                }
             }
             continue;
         }
@@ -406,6 +562,27 @@ pub fn check(net: &Network, cfg: &Config, sentence: &str) -> Result<String> {
             }
             if frames & TRANSITIVE != 0 && noun_phrases(net, cfg, &t, rest).iter().any(|&(e, _)| full(e)) {
                 return Ok("NP Verb NP".into());
+            }
+            // "fish live in water", "... on land and in water": a verb and where
+            let place = |i: usize| -> Vec<usize> {
+                if matches!(t.get(i).map(|w| w.as_str()), Some("in" | "on" | "at" | "near" | "under")) {
+                    noun_phrases(net, cfg, &t, i + 1).into_iter().map(|(e, _)| e).collect()
+                } else {
+                    Vec::new()
+                }
+            };
+            for e in place(rest) {
+                if full(e) || (t.get(e).map(|w| w == "and").unwrap_or(false) && place(e + 1).into_iter().any(full)) {
+                    return Ok("NP Verb Prep NP".into());
+                }
+            }
+            // "dogs eat flesh and meat"
+            if frames & TRANSITIVE != 0 {
+                for (e, _) in noun_phrases(net, cfg, &t, rest) {
+                    if t.get(e).map(|w| w == "and").unwrap_or(false) && noun_phrases(net, cfg, &t, e + 1).iter().any(|&(e2, _)| full(e2)) {
+                        return Ok("NP Verb NP and NP".into());
+                    }
+                }
             }
         }
     }

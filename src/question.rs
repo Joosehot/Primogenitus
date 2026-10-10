@@ -34,6 +34,10 @@
 //!   what do you remember [about me / my NP]  what the bot remembers of the whole conversation
 //!   what is my name / who am I               the user's name
 //!   what is my NP's name / what was my NP called    their pet's name
+//!   where do NP live / where are NP found    where it lives (read from the definitions)
+//!   what is NP used for / made of            what it is for, what it is made of
+//!   what is the NP of NAME                   the capital of Finland
+//!   define NP / what does W mean             the dictionary's definition
 //!   where / when / why / how ...             said plainly: no lines for places, times, reasons, ways
 //!
 //! NP is a noun phrase (a/an/the/some, a noun of one or more words, singular
@@ -89,6 +93,16 @@ pub enum Question {
     MyName,
     /// what is my NP's name
     PetNameOf(u32),
+    /// where do NP live
+    WhereLive(Subject),
+    /// what is NP used for
+    UsedFor(Subject),
+    /// what is NP made of
+    MadeOf(Subject),
+    /// what is the NP of NAME ("the capital of Finland")
+    PartNamed { kind: u32, of: u32 },
+    /// define NP, what does W mean
+    Define(Subject),
     /// how are you
     HowAreYou,
     /// can you VERB [NP]: the verb and its object
@@ -118,6 +132,21 @@ fn words(text: &str) -> Vec<String> {
                 out.push("is".to_string());
             }
             _ => out.push(w),
+        }
+    }
+    out
+}
+
+/// A name ("Finland", "New York") from t[i], longest first: (its node, end).
+fn names(net: &Network, t: &[String], i: usize) -> Vec<(u32, usize)> {
+    let mut out = Vec::new();
+    for len in (1..=3).rev() {
+        if i + len > t.len() {
+            continue;
+        }
+        let text = t[i..i + len].join(" ");
+        if let Some(n) = net.lookup(&text).iter().map(|&q| net.node(q)).find(|n| n.pos == Pos::Noun && n.form == Form::Base) {
+            out.push((n.lemma, i + len));
         }
     }
     out
@@ -460,9 +489,12 @@ pub fn read(net: &Network, text: &str) -> Question {
                         return Ask { topic, intent, more };
                     }
                 }
-                // "what do dogs eat": what it does that to
+                // "what do dogs eat": what it does that to ("what does love mean": its definition)
                 if let Some(v) = s.last().and_then(|w| verb(net, w)) {
                     if let Some(topic) = whole(k + 1, n - 1) {
+                        if s.last() == Some(&"mean") {
+                            return Define(topic);
+                        }
                         return ObjectOf { topic, verb: v };
                     }
                 }
@@ -506,6 +538,77 @@ pub fn read(net: &Network, text: &str) -> Question {
             }
         }
     }
+    // where it lives: "where do fish live", "where are pandas found", "where can owls be found"
+    if s.first() == Some(&"where") && n >= 3 {
+        for (topic, e) in nps(net, &t, 2) {
+            let rest = &s[e..];
+            let aux_ok = matches!(s[1], "do" | "does") && matches!(rest, ["live"] | ["come", "from"] | ["grow"] | ["dwell"])
+                || matches!(s[1], "are" | "is") && matches!(rest, ["found"] | ["from"])
+                || s[1] == "can" && matches!(rest, ["be", "found"]);
+            if aux_ok {
+                return WhereLive(topic);
+            }
+        }
+    }
+    // what it is used for / made of: "what is a hammer used for", "what is bread made of"
+    if s.first() == Some(&"what") && matches!(s.get(1), Some(&"is") | Some(&"are")) && n >= 5 {
+        if s[n - 2..] == ["used", "for"] {
+            if let Some(topic) = whole(2, n - 2) {
+                return UsedFor(topic);
+            }
+        }
+        if s[n - 2] == "made" && matches!(s[n - 1], "of" | "from") {
+            if let Some(topic) = whole(2, n - 2) {
+                return MadeOf(topic);
+            }
+        }
+    }
+    if s.starts_with(&["what", "do", "people", "use"]) || s.starts_with(&["what", "do", "you", "use"]) {
+        if s.last() == Some(&"for") {
+            if let Some(topic) = whole(4, n - 1) {
+                return UsedFor(topic);
+            }
+        }
+    }
+    // "what is the capital of finland": a part of a named place (or thing) that is that kind
+    if matches!(s.first(), Some(&"what") | Some(&"which")) && s.get(1) == Some(&"is") && s.get(2) == Some(&"the") {
+        if let Some(k) = s.iter().position(|w| *w == "of") {
+            let kind = nps(net, &t, 3).into_iter().find(|&(_, e)| e == k).and_then(|(s, _)| match s {
+                Subject::Noun(x) => Some(x),
+                _ => None,
+            });
+            let of = names(net, &t, k + 1).into_iter().find(|&(_, e)| e == n).map(|(x, _)| x);
+            if let (Some(kind), Some(of)) = (kind, of) {
+                if !matches!(s[3], "meaning" | "definition") {
+                    return PartNamed { kind, of };
+                }
+            }
+        }
+    }
+    // the dictionary's definition: "define love", "what does love mean", "what is the meaning of life"
+    match s.as_slice() {
+        ["define", ..] => {
+            if let Some(topic) = whole(1, n) {
+                return Define(topic);
+            }
+        }
+        ["what", "does" | "do", .., "mean"] => {
+            if let Some(topic) = whole(2, n - 1) {
+                return Define(topic);
+            }
+        }
+        ["what", "is", "the", "meaning" | "definition", "of", ..] | ["what", "is", "a", "definition", "of", ..] => {
+            if let Some(topic) = whole(5, n) {
+                return Define(topic);
+            }
+        }
+        ["meaning", "of", ..] => {
+            if let Some(topic) = whole(2, n) {
+                return Define(topic);
+            }
+        }
+        _ => {}
+    }
     // where, when, why, how: no lines for these yet
     if let Some(&w) = s.first() {
         if matches!(w, "where" | "when" | "why" | "how") {
@@ -525,7 +628,7 @@ fn why_not(net: &Network, t: &[String]) -> String {
             return format!("I do not know the word \"{w}\" (did you mean \"{}\"?).", parser::closest(net, w));
         }
     }
-    "I could not read the whole sentence. I read questions like: what is a dog, what does a dog do, what do dogs eat, what eats fish, which animals swim, what kind of animal is a dog, how big is a whale, is a dog an animal, does a dog have a tail, can dogs swim.".into()
+    "I could not read the whole sentence. I read questions like: what is a dog, what do dogs eat, where do frogs live, what is a knife used for, what is bread made of, what is the capital of France, define love, which animals swim, is a whale a mammal, does a dog have a tail.".into()
 }
 
 #[cfg(test)]

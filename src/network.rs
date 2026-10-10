@@ -53,6 +53,15 @@ pub enum Kind {
     HasObject,
     Modifies,
     ModifiedBy,
+    /// read from the definitions: what it eats ("feeds on fish", "flesh-eating")
+    Eats,
+    EatenBy,
+    /// where it lives ("living in water", "found in Asia", "aquatic")
+    LivesIn,
+    HomeOf,
+    /// what it is used for ("used for pounding")
+    UsedFor,
+    UseOf,
 }
 
 impl Kind {
@@ -82,6 +91,12 @@ impl Kind {
             HasObject => "done to",
             Modifies => "describes",
             ModifiedBy => "described as",
+            Eats => "eats",
+            EatenBy => "eaten by",
+            LivesIn => "lives in",
+            HomeOf => "home of",
+            UsedFor => "used for",
+            UseOf => "use of",
         }
     }
 }
@@ -110,6 +125,9 @@ pub struct Node {
     pub mass: bool,
     /// the form is known to be right (unsure forms are never generated)
     pub sure: bool,
+    /// the first word of its most common sense (the sense's main name: "Helsinki", not "Helsingfors")
+    #[serde(default)]
+    pub head: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
@@ -131,13 +149,16 @@ pub struct Network {
     pub lines: Vec<Vec<Line>>,
     /// base node -> its variation nodes
     pub forms: Vec<Vec<u32>>,
+    /// a base word's definition in its most common sense, as the dictionary has it
+    #[serde(default)]
+    pub defs: HashMap<u32, String>,
     #[serde(skip)]
     index: HashMap<String, Vec<u32>>,
 }
 
 impl Network {
     pub fn new(nodes: Vec<Node>, lines: Vec<Vec<Line>>, forms: Vec<Vec<u32>>) -> Network {
-        let mut n = Network { nodes, lines, forms, index: HashMap::new() };
+        let mut n = Network { nodes, lines, forms, defs: HashMap::new(), index: HashMap::new() };
         n.reindex();
         n
     }
@@ -168,6 +189,11 @@ impl Network {
             return Some(&self.nodes[lemma as usize]);
         }
         self.forms[lemma as usize].iter().map(|&i| &self.nodes[i as usize]).find(|n| n.form == form)
+    }
+
+    /// The dictionary's definition of a base word (its most common sense).
+    pub fn def(&self, i: u32) -> Option<&str> {
+        self.defs.get(&i).map(|s| s.as_str())
     }
 
     pub fn node(&self, i: u32) -> &Node {

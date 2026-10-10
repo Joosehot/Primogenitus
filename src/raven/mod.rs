@@ -537,9 +537,17 @@ impl<'a> Raven<'a> {
                     if q0 == Question::WhoAreYou {
                         bodies.extend(self.parts("who_am_i_more", &b, |p| p.answer = true));
                     }
+                    let what_is = matches!(q0, Question::Ask { intent: crate::question::Intent::WhatIs, .. });
                     let r = self.chat.answer_question(q0);
                     let topic = self.chat.topic();
-                    let mut part = Part { text: self.warm(&r.text), answer: true, why: r.why.clone(), ..Default::default() };
+                    let mut text = self.warm(&r.text);
+                    // what it is: the dictionary's own words too
+                    if let (true, false, Some(tp)) = (what_is, r.why.is_empty(), topic) {
+                        if let Some(d) = self.net.def(tp) {
+                            text = format!("{text} My dictionary says: \"{d}\".");
+                        }
+                    }
+                    let mut part = Part { text, answer: true, why: r.why.clone(), ..Default::default() };
                     if let Some(tp) = topic {
                         part.mentions.push(tp);
                         ctx.nouns.push(tp);
@@ -951,9 +959,14 @@ impl<'a> Raven<'a> {
             }
         }
         if (!all || turns.is_empty()) && !turns.contains(&Turn::Heard) {
+            // a question not read: say what was not read, and what can be asked
+            let asked_unread = turn::is_question(text);
+            if asked_unread {
+                ctx.asked = true;
+            }
             let reason = if turns.is_empty() {
                 match crate::question::read(self.net, text) {
-                    Question::Unknown(r) if r.starts_with("I do not know the word") => Some(r),
+                    Question::Unknown(r) if r.starts_with("I do not know the word") || asked_unread => Some(r),
                     _ => None,
                 }
             } else {

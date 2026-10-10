@@ -10,6 +10,9 @@ mass_lexfiles = [7, 9, 10, 12, 13, 19, 21, 22, 26, 27]
 # ... unless the dictionary's own texts count it: "an apple" standing alone (not
 # "a water bird") this many times makes a noun countable
 count_evidence = 3
+# ... and a noun the texts use this many times but never with "a" nor in the
+# plural ("flesh") is uncountable too
+mass_seen = 5
 
 # How much meaning a line carries when meaning spreads from the input word.
 [lines]
@@ -36,6 +39,12 @@ object_of = 1.0
 has_object = 1.0
 modifies = 1.0
 modified_by = 1.0
+eats = 0.8                  # read from the definitions ("feeds on fish", "flesh-eating")
+eaten_by = 0.6
+lives_in = 0.8              # ("living in water", "found in Asia", "aquatic")
+home_of = 0.4
+used_for = 0.8              # ("used for pounding")
+use_of = 0.4
 
 [spread]
 hops = 3
@@ -82,11 +91,13 @@ a = ["uni", "use", "usu", "uti", "ura", "ure", "uro", "eu", "ewe", "one", "once"
 greeting = "Hello. Ask me about a thing, an animal or a person: what it is, what it does, what it has, what it is like."
 goodbye = "Goodbye."
 thanks = "You are welcome."
-help = "Ask me: what is a dog, what does a dog do, what does a dog have, what is a dog like, is a dog an animal, does a dog have a tail, can dogs swim. Say \"what else\" for more, and \"it\" or \"they\" for what we talked about."
+help = "Ask me: what is a dog, what do dogs eat, where do frogs live, what is a knife used for, what is bread made of, what is the capital of France, define love, is a dog an animal, does a dog have a tail, can dogs swim. Say \"what else\" for more, and \"it\" or \"they\" for what we talked about."
 no_pronoun = "Who or what do you mean? We have not talked about anything yet."
 nothing_yet = "Ask me something first."
 who_am_i = "I am Primogenitus, Primo for short. I make sentences from a frozen network of words built from a dictionary. Nothing in me was trained, and I say only what a line in my network says."
 how_am_i = "I am well, thank you. Ask me about something."
+# kinds so general that what is said of them says nothing of a word below them
+inherit_stop = ["entity", "physical entity", "object", "whole", "unit", "being", "living thing", "animate thing", "organism", "abstraction", "matter", "thing", "person", "individual", "causal agent", "artifact", "instrumentality", "group", "relation", "attribute", "psychological feature", "event", "act", "state"]
 cannot = "I cannot answer \"{word}\" questions yet: my network knows what things are, what they do, what they have and what they are like, but it has no lines for {what}."
 
 # What Primo knows about itself ("you" in a question). A verb or an adjective
