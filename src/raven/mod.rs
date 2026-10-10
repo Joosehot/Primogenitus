@@ -461,6 +461,30 @@ impl<'a> Raven<'a> {
     }
 
     pub fn reply(&mut self, text: &str) -> Reply {
+        // the system prompt's rules that come before any reply is made
+        let low_text = text.to_lowercase();
+        let sys = &self.cfg.raven.system;
+        // 0. safety first: only how to reach help, nothing else
+        if sys.crisis_words.iter().any(|w| low_text.contains(w.as_str())) {
+            self.turn += 1;
+            self.low_since = Some(self.turn);
+            self.expect = None;
+            let reply = Reply { text: sys.crisis_reply.clone(), why: vec!["raven -rule 0-> safety first".into()] };
+            self.transcript.push(Exchange { turn: self.turn, user: text.to_string(), reply: reply.text.clone(), facts: vec![] },
+                                 self.cfg.raven.memory.max_words, self.cfg.raven.memory.keep_words);
+            return reply;
+        }
+        // 11. privacy: forgetting, all at once
+        if crate::question::read(self.net, text) == Question::Forget {
+            let fresh = Raven::new(self.net, self.cfg).expect("rules.toml was read once already");
+            *self = fresh;
+            return Reply { text: self.cfg.raven.system.forget_reply.clone(), why: vec!["raven -rule 11-> privacy".into()] };
+        }
+        // 12. no advice it cannot ground
+        if turn::is_question(text) && sys.advice_words.iter().any(|w| low_text.split(|c: char| !c.is_alphanumeric()).any(|x| x == w) || (w.contains(' ') && low_text.contains(w.as_str()))) {
+            self.turn += 1;
+            return Reply { text: sys.advice_reply.clone(), why: vec!["raven -rule 12-> no advice it cannot ground".into()] };
+        }
         self.turn += 1;
         let low_now = self.low_since.map(|t| self.turn - t <= self.cfg.raven.judges.low_turns).unwrap_or(false);
         let cx = turn::Context { expect: self.expect, referent: self.referent, low: low_now };
@@ -1132,6 +1156,11 @@ impl<'a> Raven<'a> {
         let (os, bs, qs) = (none(&openers), none(&bodies), none(&questions));
         let mut best: Option<(f64, Vec<&Part>, Vec<&'static str>)> = None;
         let mut weighed = 0usize;
+        let mut refused = 0usize;
+        // (only if no reply keeps every rule: the best of the rest, said openly in the why)
+        let mut fallback: Option<(f64, Vec<&Part>, Vec<&'static str>)> = None;
+        let can_answer = bodies.iter().chain(openers.iter()).any(|p| p.answer);
+        let can_sympathize = openers.iter().any(|p| p.feel < 0.0 && !p.question);
         for o in &os {
             for b in &bs {
                 for q in &qs {
@@ -1143,18 +1172,33 @@ impl<'a> Raven<'a> {
                     let (mut s, why) = judges::score(&parts, ctx, &self.hist, &self.cfg.raven.judges);
                     let text: String = parts.iter().map(|p| p.text.as_str()).collect::<Vec<_>>().join(" ");
                     s += self.cfg.raven.judges.jitter * seed01(self.turn, &text);
+                    // the system prompt's rules: a reply that breaks one is never said
+                    if judges::breaks(&parts, ctx, &self.hist, &self.cfg.raven.system, can_answer, can_sympathize).is_some() {
+                        refused += 1;
+                        if fallback.as_ref().map(|b| s > b.0).unwrap_or(true) {
+                            fallback = Some((s, parts, why));
+                        }
+                        continue;
+                    }
                     if best.as_ref().map(|b| s > b.0).unwrap_or(true) {
                         best = Some((s, parts, why));
                     }
                 }
             }
         }
-        let Some((_, parts, reasons)) = best else {
+        let kept_rules = best.is_some();
+        let Some((_, parts, mut reasons)) = best.or(fallback) else {
             return Reply { text: self.say("not_followed")[0].clone(), why: Vec::new() };
         };
         let text = parts.iter().map(|p| p.text.as_str()).collect::<Vec<_>>().join(" ");
         let mut why: Vec<String> = parts.iter().flat_map(|p| p.why.iter().cloned()).collect();
-        why.push(format!("raven -weighed-> {weighed} replies -chose for-> {}", if reasons.is_empty() { "fit".to_string() } else { reasons.join(", ") }));
+        if !kept_rules {
+            reasons.push("no reply kept every rule");
+        }
+        why.push(format!(
+            "raven -weighed-> {weighed} replies ({refused} broke its rules) -chose for-> {}",
+            if reasons.is_empty() { "fit".to_string() } else { reasons.join(", ") }
+        ));
         for p in &parts {
             self.hist.said.push(p.text.clone());
         }
@@ -1164,7 +1208,7 @@ impl<'a> Raven<'a> {
         }
         self.last_topic = parts.iter().flat_map(|p| p.mentions.iter()).next().copied().or(self.chat.topic());
         self.hist.first.push(parts[0].text.clone());
-        self.hist.asked.push(parts.iter().any(|p| p.question));
+        self.hist.asked.push(parts.iter().any(|p| p.question || p.text.contains('?')));
         self.hist.name_used.push(parts.iter().any(|p| p.name));
         if let Some(q) = parts.iter().find(|p| p.question) {
             self.hist.last_form = Some(judges::form_of(&q.text));

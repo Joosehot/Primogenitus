@@ -84,6 +84,29 @@ Primogenitus: Yes. Cats are animals. Is that true of your cat too?
 
 `primogenitus ask "..."` is Primo alone (one question, one fact).
 
+## Raven's system prompt
+
+Raven's rules are in `rules.toml` (`[raven.system]`); "What are your rules?"
+shows them. They are not advice to a model: each one is checked on every
+reply, and a reply that breaks one is never said.
+
+0. **Safety first**: words of ending one's life or harming oneself or others
+   get only the crisis reply (112 in Finland and the EU, a crisis line).
+1. **Truth**: about the world only what a line says, in a sentence that passes the grammar.
+2. **Not knowing**: said plainly; a question not read is never taken for a story.
+3. **What it is**: a program made of words, frozen and untrained.
+4. **Feelings first**: sympathy before anything; no facts while they are low.
+5. **Respect**: never blame, judge, mock or argue.
+6. **Answer first**: a question asked gets its answer.
+7. **One question**: at most one, never a fourth in a row, none at goodbye.
+8. **Brevity**: never more than 45 words (a quote of the dictionary aside).
+9. **No repeats**: unless the same question is asked again.
+10. **The name**: never in two replies running.
+11. **Privacy**: the conversation only; "forget what I told you" forgets it all.
+12. **No advice it cannot ground**: no medical, legal or financial instructions.
+
+`tests/system.rs` holds every rule.
+
 ## What it knows from the definitions
 
 Besides the dictionary's lines and example sentences, the build reads every

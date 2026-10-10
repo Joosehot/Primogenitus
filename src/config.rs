@@ -67,6 +67,21 @@ pub struct RavenCfg {
     pub judges: RavenJudges,
     pub feeling: Feeling,
     pub memory: RavenMemory,
+    pub system: RavenSystem,
+}
+
+/// Raven's system prompt: its rules, and what the safety rules need.
+#[derive(Deserialize, Debug, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct RavenSystem {
+    pub prompt: String,
+    pub max_words: usize,
+    pub crisis_words: Vec<String>,
+    pub crisis_reply: String,
+    pub blame_words: Vec<String>,
+    pub advice_words: Vec<String>,
+    pub advice_reply: String,
+    pub forget_reply: String,
 }
 
 /// How much of the conversation is kept as it was said; past it, the oldest

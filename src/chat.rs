@@ -123,6 +123,11 @@ impl<'a> Chat<'a> {
                 Err(r) => r,
             },
             Question::PartNamed { kind, of } => self.part_named(kind, of),
+            Question::Rules => Reply::plain(self.cfg.raven.system.prompt.trim().to_string()),
+            Question::Forget => {
+                *self = Chat::new(self.net, self.cfg);
+                Reply::plain(self.cfg.raven.system.forget_reply.clone())
+            }
             Question::Define(topic) => match topic {
                 Subject::Noun(t) => self.define(t),
                 Subject::Pronoun => match self.topic {

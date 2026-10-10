@@ -103,6 +103,10 @@ pub enum Question {
     PartNamed { kind: u32, of: u32 },
     /// define NP, what does W mean
     Define(Subject),
+    /// what are your rules
+    Rules,
+    /// forget what I told you
+    Forget,
     /// how are you
     HowAreYou,
     /// can you VERB [NP]: the verb and its object
@@ -246,6 +250,10 @@ pub fn read(net: &Network, text: &str) -> Question {
         ["who", "are", "you"] | ["what", "are", "you"] | ["what", "is", "your", "name"] | ["who", "is", "primo"]
         | ["what", "is", "primo"] | ["who", "is", "primogenitus"] | ["what", "is", "primogenitus"]
         | ["what", "is", "your", "full", "name"] => return WhoAreYou,
+        ["what", "are", "your", "rules"] | ["what", "is", "your", "system", "prompt"] | ["show", "me", "your", "rules"] | ["your", "rules"]
+        | ["what", "rules", "do", "you", "follow"] => return Rules,
+        ["forget", "me"] | ["forget", "everything"] | ["forget", "what", "i", "told", "you"] | ["please", "forget", "everything"]
+        | ["please", "forget", "what", "i", "told", "you"] | ["forget", "all", "of", "it"] | ["delete", "my", "data"] => return Forget,
         ["how", "are", "you"] | ["how", "are", "you", "doing"] | ["how", "is", "it", "going"] | ["and", "you"]
         | ["how", "about", "you"] | ["what", "about", "yourself"] => return HowAreYou,
         ["what", "about", "you"] | ["about", "you"] | ["you"] | ["i", "meant" | "mean", "you"] | ["i", "was", "asking", "about", "you"]

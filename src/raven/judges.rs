@@ -20,6 +20,56 @@
 use super::{History, Part, TurnCtx};
 use crate::config::RavenJudges;
 
+/// The system prompt's rules, checked on a whole reply: the first rule it
+/// breaks, or None. A reply that breaks one is never said (rules 0, 2, 3, 11
+/// and 12 are kept before any reply is made: in mod.rs and turn.rs).
+pub fn breaks(parts: &[&Part], ctx: &TurnCtx, hist: &History, sys: &crate::config::RavenSystem, can_answer: bool, can_sympathize: bool) -> Option<&'static str> {
+    let has = |f: &dyn Fn(&Part) -> bool| parts.iter().any(|p| f(p));
+    let text: String = parts.iter().map(|p| p.text.as_str()).collect::<Vec<_>>().join(" ").to_lowercase();
+    // 4. feelings first: sympathy before anything while they hurt, and no facts while they are low
+    if ctx.valence < 0.0 && can_sympathize && !parts.first().map(|p| p.feel < 0.0 && !p.question).unwrap_or(false) {
+        return Some("4: feelings first");
+    }
+    if (ctx.low || ctx.valence < 0.0) && has(&|p| p.fact && !p.answer) {
+        return Some("4: no facts while they are low");
+    }
+    // 5. respect
+    if sys.blame_words.iter().any(|b| text.contains(b.as_str())) {
+        return Some("5: respect");
+    }
+    // 6. answer first: a question asked gets its answer
+    if ctx.asked && can_answer && !has(&|p| p.answer) {
+        return Some("6: answer first");
+    }
+    // 7. one question; not a fourth in a row; none at goodbye (a question is any part that asks)
+    let asks = parts.iter().filter(|p| p.question || p.text.contains('?')).count();
+    if asks > 1 {
+        return Some("7: one question");
+    }
+    let gentle = ctx.low && parts.iter().any(|p| p.question && p.feel < 0.0);
+    if asks == 1 && !gentle && hist.asked.iter().rev().take(3).filter(|&&a| a).count() == 3 {
+        return Some("7: not a fourth question in a row");
+    }
+    if asks > 0 && ctx.closing {
+        return Some("7: no question at goodbye");
+    }
+    // 8. brevity (a quote of the dictionary is the dictionary's length; the rules are the rules' length)
+    let quoting = text.contains("my dictionary says") || text.contains("these are my rules");
+    let words = text.split_whitespace().count();
+    if words > sys.max_words && !quoting {
+        return Some("8: brevity");
+    }
+    // 9. no repeats (but an answer to a question asked again)
+    if parts.iter().any(|p| hist.said.contains(&p.text) && !(p.answer && ctx.asked)) {
+        return Some("9: no repeats");
+    }
+    // 10. the name: never in two replies running
+    if has(&|p| p.name) && hist.name_used.last().copied().unwrap_or(false) {
+        return Some("10: the name, not twice running");
+    }
+    None
+}
+
 /// A question's form: its first three words ("do you feel").
 pub fn form_of(q: &str) -> String {
     q.to_lowercase().split_whitespace().take(3).collect::<Vec<_>>().join(" ")
