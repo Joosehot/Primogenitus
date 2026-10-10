@@ -185,6 +185,31 @@ fn the_context_holds() {
     assert!(!r.contains('?'), "{r}");
 }
 
+/// The fifth conversation as it really went (2026-10-11): talking about it.
+#[test]
+fn talking_about_it() {
+    let Some((net, cfg)) = setup() else { return };
+    let mut raven = Raven::new(&net, &cfg).unwrap();
+    raven.greeting();
+    let mut talk = |q: &str| {
+        let r = raven.reply(q).text;
+        println!("You: {q}
+Primogenitus: {r}");
+        assert!(!r.contains("did not") && !r.contains("told me"), "{q} -> {r}");
+        r
+    };
+    talk("Joose");
+    talk("I'm fine");
+    talk("Pretty well");
+    talk("Yeah");
+    talk("Are you a robot?");
+    talk("I am your creator.");
+    let r = talk("Let's talk about you");
+    assert!(r.contains("Primogenitus") || r.contains("myself"), "{r}");
+    let r = talk("Can we talk about dogs?");
+    assert!(r.contains("dog") || r.contains("Dog"), "{r}");
+}
+
 /// A long conversation: the whole of it is remembered, compacting runs, and
 /// what was told at the start is still known at the end.
 #[test]

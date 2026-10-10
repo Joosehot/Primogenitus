@@ -392,6 +392,22 @@ pub fn read(net: &Network, text: &str) -> Question {
     let n = t.len();
     // the noun phrase from i that ends exactly at `end`
     let whole = |i: usize, end: usize| nps(net, &t, i).into_iter().find(|&(_, e)| e == end).map(|(s, _)| s);
+    // a topic offered: "let's talk about you", "can we talk about dogs", "I want to know more about you"
+    for p in [&["let's", "talk", "about"][..], &["lets", "talk", "about"][..], &["let", "us", "talk", "about"][..],
+              &["can", "we", "talk", "about"][..], &["could", "we", "talk", "about"][..], &["shall", "we", "talk", "about"][..],
+              &["i", "want", "to", "talk", "about"][..], &["i'd", "like", "to", "talk", "about"][..], &["talk", "about"][..],
+              &["i", "want", "to", "know", "about"][..], &["i", "want", "to", "know", "more", "about"][..],
+              &["tell", "me", "more", "about"][..], &["i", "would", "like", "to", "know", "more", "about"][..]] {
+        if s.starts_with(p) {
+            let rest = &s[p.len()..];
+            if matches!(rest, ["you"] | ["yourself"] | ["you", "primo"] | ["you", "then"] | ["you", "instead"] | ["primo"] | ["primogenitus"]) {
+                return Me("about");
+            }
+            if let Some(topic) = whole(p.len(), n) {
+                return Ask { topic, intent: Intent::About, more: false };
+            }
+        }
+    }
     // "tell me about NP", "what about NP", "and NP", "NP"
     for (prefix, intent) in [(&["tell", "me", "about"][..], Intent::About), (&["what", "about"][..], Intent::About),
                              (&["and"][..], Intent::About), (&["describe"][..], Intent::WhatLike), (&[][..], Intent::About)] {
