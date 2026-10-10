@@ -2,6 +2,9 @@
 //! primogenitus chat [--explain]      talk (one question per line)
 //! primogenitus ask "question"        one question, one answer
 //! primogenitus serve [--port 7878]   the chat page: http://127.0.0.1:7878/
+//! primogenitus complete "prompt" [--sentences N] [--explain]   MBLM: the prompt continued
+//! primogenitus next "prompt" [--top K]                         MBLM: the next word's distribution
+//! primogenitus score "text"                                    MBLM: every word's probability, perplexity, coverage
 //! primogenitus <noun> [--seeds N] [--explain] [--rules rules.toml]
 
 use anyhow::{bail, Result};
@@ -22,6 +25,8 @@ fn main() -> Result<()> {
     let rules = take("--rules").map(PathBuf::from).unwrap_or_else(|| root.join("rules.toml"));
     let seeds: Option<usize> = take("--seeds").map(|s| s.parse()).transpose()?;
     let port: u16 = take("--port").map(|s| s.parse()).transpose()?.unwrap_or(7878);
+    let sentences: Option<usize> = take("--sentences").map(|s| s.parse()).transpose()?;
+    let top: usize = take("--top").map(|s| s.parse()).transpose()?.unwrap_or(10);
     let explain = match args.iter().position(|a| a == "--explain") {
         Some(k) => {
             args.remove(k);
@@ -56,6 +61,55 @@ fn main() -> Result<()> {
     }
     if args.is_empty() {
         bail!("usage: primogenitus build | chat | ask \"question\" | serve [--port N] | <noun> [--seeds N] [--explain]");
+    }
+    if matches!(args[0].as_str(), "complete" | "next" | "score") {
+        let net = Network::load(&frozen)?;
+        let m = primogenitus::mblm::Mblm::new(&net, &cfg);
+        let text = args[1..].join(" ");
+        let t = Instant::now();
+        match args[0].as_str() {
+            "complete" => match m.complete(&text, sentences.unwrap_or(cfg.mblm.sentences)) {
+                Ok((more, toks)) => {
+                    println!("{text}\x1b[1m{more}\x1b[0m");
+                    if explain {
+                        for tk in &toks {
+                            println!("  {:>8.4}  {:<14} {}", tk.p, tk.text, tk.why);
+                        }
+                    }
+                    let lp: f64 = toks.iter().map(|t| t.p.ln()).sum();
+                    eprintln!("({} words, mean log-probability {:.3}, {:.3} s)", toks.len(), lp / toks.len().max(1) as f64, t.elapsed().as_secs_f64());
+                }
+                Err(e) => println!("{e}"),
+            },
+            "next" => {
+                let Some(topic) = m.topic_of(&text) else { bail!("no noun in the prompt that I know well enough") };
+                let mut p = m.para(topic);
+                let (read, st) = m.read(&text, &mut p);
+                let lost = read.iter().any(|(_, pr, _)| pr.is_none());
+                let st = if lost { primogenitus::mblm::St::Start } else { st };
+                if lost {
+                    println!("(the motor could not follow the prompt to its end; a new sentence about \"{}\")", net.node(topic).text);
+                }
+                for tk in m.next(st, &p).into_iter().take(top) {
+                    println!("  {:>8.4}  {:<14} {}", tk.p, tk.text, tk.why);
+                }
+            }
+            _ => match m.score(&text) {
+                Some(s) => {
+                    println!("topic: {}", s.topic);
+                    for (w, pr, alts) in &s.words {
+                        let alts: Vec<String> = alts.iter().map(|(a, p)| format!("{a} {p:.3}")).collect();
+                        match pr {
+                            Some(p) => println!("  {:>8.4}  {:<14} (likeliest: {})", p, w, alts.join(", ")),
+                            None => println!("  {:>8}  {:<14} (no place for it in the motor)", "-", w),
+                        }
+                    }
+                    println!("perplexity {:.2} over the words inside the motor; coverage {:.0}%", s.perplexity, s.coverage * 100.0);
+                }
+                None => println!("I found no noun in the text that I know well enough to read it by."),
+            },
+        }
+        return Ok(());
     }
     if args[0] == "serve" {
         let net = Network::load(&frozen)?;

@@ -84,6 +84,44 @@ Primogenitus: Yes. Cats are animals. Is that true of your cat too?
 
 `primogenitus ask "..."` is Primo alone (one question, one fact).
 
+## MBLM: a motor based language model
+
+Primo as a language model, word by word, with nothing trained. For any text
+so far it gives a distribution over the next word, and continues text by
+choosing from it:
+
+- **the grammar**: a word-level automaton of Primo's sentence grammar says
+  which words may come next at all (a determiner, an adjective, the noun, a
+  verb in the form that agrees, "is", "has", a full stop); everything else
+  has probability 0;
+- **the meaning**: the frozen network's lines say which of those words fit
+  the topic (what it is, does, has, is like; what that verb is done to);
+- **the judges**: a word said already in the paragraph, or its opposite, is
+  held back; a sentence is chosen by its words' mean log-probability, so a
+  short one is not better for being short.
+
+The scores become probabilities by a softmax (`[mblm]` in rules.toml), each
+with the line it stands on.
+
+```
+$ primogenitus complete "A dog is"
+A dog is a domestic animal. It snatches a bone. It licks a hand. It chases a rabbit.
+
+$ primogenitus next "A dog is a"
+    0.6693  domestic animal dog -is a-> domestic animal
+    0.3015  beast          dog -is a-> domestic animal -is a-> beast
+    0.0087  canid          dog -is a-> canid
+    ...
+
+$ primogenitus score "Dogs bark. They chase rabbits."
+perplexity 2.97 over the words inside the motor; coverage 100%
+```
+
+`score` gives every word its probability, the perplexity over the words the
+motor has a place for, and the coverage: how much of the text lies inside
+the motor at all (the same words scrambled: 0%). It is said plainly: words
+outside the motor's grammar and lines are not given a made-up probability.
+
 ## The chatbot (Primo alone)
 
 ```

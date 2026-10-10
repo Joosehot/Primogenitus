@@ -17,6 +17,30 @@ pub struct Config {
     pub chat: Chat,
     pub me: Me,
     pub raven: RavenCfg,
+    pub mblm: MblmCfg,
+}
+
+/// MBLM, the motor based language model: its beam, its softmax temperature,
+/// and the priors of the grammar's choices.
+#[derive(Deserialize, Debug, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct MblmCfg {
+    pub sentences: usize,
+    pub candidates: usize,
+    pub beam: usize,
+    pub temperature: f64,
+    pub said: f64,
+    pub pronoun: f64,
+    pub noun_again: f64,
+    pub a: f64,
+    pub the: f64,
+    pub bare: f64,
+    pub adjective: f64,
+    pub is: f64,
+    pub has: f64,
+    pub does: f64,
+    pub end_intransitive: f64,
+    pub end_with_objects: f64,
 }
 
 /// Raven: the words it says around Primo's facts, its judges' weights, its

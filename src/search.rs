@@ -85,6 +85,8 @@ pub struct Ctx<'a> {
     parent: Vec<(u32, Kind)>,
     best: HashMap<Pos, f32>,
     pub seed: u64,
+    /// how many choices a slot offers (the generator's few; MBLM's whole distribution)
+    pub limit: usize,
 }
 
 fn splitmix(mut x: u64) -> u64 {
@@ -143,7 +145,7 @@ impl<'a> Ctx<'a> {
             let e = best.entry(net.nodes[i].pos).or_default();
             *e = e.max(a);
         }
-        Ctx { net, cfg, topic, act, parent, best, seed: 0 }
+        Ctx { net, cfg, topic, act, parent, best, seed: 0, limit: cfg.search.candidates }
     }
 
     pub fn node(&self, i: u32) -> &Node {
@@ -257,7 +259,7 @@ impl<'a> Ctx<'a> {
             }
         }
         out.sort_by(|a, b| (b.1 + self.jit(b.0)).partial_cmp(&(a.1 + self.jit(a.0))).unwrap().then(a.0.cmp(&b.0)));
-        out.truncate(self.cfg.search.candidates);
+        out.truncate(self.limit);
         out
     }
 

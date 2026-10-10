@@ -259,3 +259,24 @@ good_nouns = ["happiness", "joy", "love", "pleasure", "hope", "pride", "calmness
 bad_nouns = ["sadness", "unhappiness", "sorrow", "anger", "fear", "anxiety", "shame", "pain", "grief", "loneliness", "dislike", "boredom", "disgust", "despair", "worry", "jealousy", "frustration", "guilt"]
 good_events = ["win", "pass", "marry", "graduate", "recover", "succeed", "arrive", "celebrate"]
 bad_events = ["die", "lose", "leave", "break", "fail", "hurt", "crash", "disappear", "suffer", "fall", "break up", "split up", "fire", "dump", "divorce", "separate", "sack", "flunk", "lay off"]
+
+# ---------------------------------------------------------------- MBLM
+# The motor based language model: word by word, the grammar says which words
+# may come, the lines score them, a softmax makes the probabilities.
+[mblm]
+sentences = 4               # how many sentences `complete` adds
+candidates = 400            # the words a slot may offer: the whole distribution, not a few
+beam = 24
+temperature = 1.0           # the softmax's: lower is surer
+said = -6.0                 # a content word said already in the paragraph
+pronoun = 0.8               # "It barks." after the first sentence
+noun_again = -0.6           # the topic named again instead
+a = 0.3                     # "A dog ..."
+the = -0.8                  # "The dog ..."
+bare = 0.4                  # "Dogs ..." / "Bread ..."
+adjective = -0.8            # "A noisy dog ..."
+is = 0.0                    # "... is a canine" / "... is loyal"
+has = -0.3                  # "... has a tail"
+does = 0.4                  # "... barks" / "... chases rabbits"
+end_intransitive = 0.0      # "... barks." (no object)
+end_with_objects = -1.5     # ending bare a verb the examples give objects ("they eat.")

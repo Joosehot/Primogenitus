@@ -35,7 +35,7 @@ pub fn along(cx: &Ctx, kind: Kind) -> Vec<(u32, f64, String)> {
         }
     }
     out.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap().then(a.0.cmp(&b.0)));
-    out.truncate(cx.cfg.search.candidates);
+    out.truncate(cx.limit);
     out
 }
 

@@ -20,12 +20,15 @@
 //!   raven     the conversation made humane: the person remembered, replies
 //!             searched and judged for feeling, listening, memory, flow
 //!   serve     the chat page on this machine
+//!   mblm      the motor based language model: next-word probabilities,
+//!             text continued word by word, any text scored
 
 pub mod build;
 pub mod chat;
 pub mod config;
 pub mod input;
 pub mod lexicon;
+pub mod mblm;
 pub mod morph;
 pub mod network;
 pub mod parser;

@@ -340,7 +340,7 @@ fn agrees(num: Num, form: Form) -> bool {
 }
 
 /// The grammar every sentence must parse under:
-///   S  -> NP VP "."
+///   S  -> (NP | "it" | "they") VP "."
 ///   NP -> ("a" | "an" | "the")? Adj? Noun     (a/an: singular, its sound; none: plural,
 ///                                             or a noun that may be uncountable, singular)
 ///   VP -> Verb(intransitive) | Verb(transitive) NP | Be Adj | Be NP | Have NP
@@ -354,7 +354,13 @@ pub fn check(net: &Network, cfg: &Config, sentence: &str) -> Result<String> {
         bail!("does not start with a capital letter");
     }
     let t = tokens(&s[..s.len() - 1]);
-    for (end, num) in noun_phrases(net, cfg, &t, 0) {
+    let mut subjects = noun_phrases(net, cfg, &t, 0);
+    match t.first().map(|w| w.as_str()) {
+        Some("it") => subjects.push((1, Num::Sg)),
+        Some("they") => subjects.push((1, Num::Pl)),
+        _ => {}
+    }
+    for (end, num) in subjects {
         let Some(v) = t.get(end) else { continue };
         let rest = end + 1;
         let full = |e: usize| e == t.len();
