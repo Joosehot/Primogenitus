@@ -403,8 +403,9 @@ pub fn read(net: &Network, text: &str) -> Question {
             if matches!(rest, ["you"] | ["yourself"] | ["you", "primo"] | ["you", "then"] | ["you", "instead"] | ["primo"] | ["primogenitus"]) {
                 return Me("about");
             }
+            // a topic offered starts with what it is
             if let Some(topic) = whole(p.len(), n) {
-                return Ask { topic, intent: Intent::About, more: false };
+                return Ask { topic, intent: Intent::WhatIs, more: false };
             }
         }
     }
