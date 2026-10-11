@@ -206,6 +206,8 @@ Primogenitus: {r}");
     talk("I am your creator.");
     let r = talk("Let's talk about you");
     assert!(r.contains("Primogenitus") || r.contains("myself"), "{r}");
+    let r = talk("Let’s talk");
+    assert!(r.contains("Gladly"), "{r}");
     let r = talk("Can we talk about dogs?");
     assert!(r.contains("dog") || r.contains("Dog"), "{r}");
 }

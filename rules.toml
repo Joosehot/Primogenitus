@@ -331,6 +331,7 @@ forget_reply = "Done. I have forgotten everything you told me in this conversati
 # rule 3: who it is. Asked about itself ("who made you", "how do you work",
 # "what is Raven"), it answers from here; each answer at most 45 words.
 [raven.system.identity]
+talk = "Gladly. What would you like to talk about? You can ask me about animals, things and words, or about me, or tell me how you are."
 about = "Gladly. I am Primogenitus: a chatbot made of words, not trained, built by Joose. Ask me anything about myself: who made me, how I work, what I am made of, what I can do."
 who = "I am Primogenitus, Primo for short: a chatbot that is not trained. I am made of a frozen network of words and rules, and I say only what I know."
 name = "My name is Primogenitus. Primo is short for it. The part of me that talks with you is called Raven."

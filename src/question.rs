@@ -392,6 +392,13 @@ pub fn read(net: &Network, text: &str) -> Question {
     let n = t.len();
     // the noun phrase from i that ends exactly at `end`
     let whole = |i: usize, end: usize| nps(net, &t, i).into_iter().find(|&(_, e)| e == end).map(|(s, _)| s);
+    // "let's talk", "let's chat", "can we talk": gladly, about what?
+    if matches!(s.as_slice(), ["let's" | "lets", "talk" | "chat"] | ["let", "us", "talk" | "chat"] | ["can" | "could" | "shall", "we", "talk" | "chat"]
+        | ["let's" | "lets", "talk" | "chat", "a", "bit"] | ["i", "want", "to", "talk" | "chat"] | ["i", "just", "want", "to", "talk"]
+        | ["let's" | "lets", "have", "a", "chat" | "talk" | "conversation"] | ["let's" | "lets", "talk", "then"])
+    {
+        return Me("talk");
+    }
     // a topic offered: "let's talk about you", "can we talk about dogs", "I want to know more about you"
     for p in [&["let's", "talk", "about"][..], &["lets", "talk", "about"][..], &["let", "us", "talk", "about"][..],
               &["can", "we", "talk", "about"][..], &["could", "we", "talk", "about"][..], &["shall", "we", "talk", "about"][..],
@@ -402,6 +409,10 @@ pub fn read(net: &Network, text: &str) -> Question {
             let rest = &s[p.len()..];
             if matches!(rest, ["you"] | ["yourself"] | ["you", "primo"] | ["you", "then"] | ["you", "instead"] | ["primo"] | ["primogenitus"]) {
                 return Me("about");
+            }
+            // "let's talk about something (else)": gladly, about what?
+            if matches!(rest, ["something"] | ["something", "else"] | ["anything"] | ["anything", "else"] | ["it"] | ["that"] | ["this"]) {
+                return Me("talk");
             }
             // a topic offered starts with what it is
             if let Some(topic) = whole(p.len(), n) {
