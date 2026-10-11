@@ -105,6 +105,8 @@ pub struct TurnCtx {
     /// they told of a bad feeling a short while ago, and nothing better since:
     /// the conversation stays gentle and on it
     pub low: bool,
+    /// what they are talking about (the thing they brought up last), while it is fresh
+    pub thread: Option<u32>,
     pub nouns: Vec<u32>,
 }
 
@@ -137,6 +139,8 @@ pub struct Raven<'a> {
     pub transcript: Transcript,
     /// the words the model's questions have asked about
     asked_about: HashSet<u32>,
+    /// the thing the person brought up last, and the turn they did
+    thread: Option<(u32, u64)>,
 }
 
 /// The words for a template's slots: {name}, {noun}, {a_noun}, {nouns},
@@ -198,6 +202,7 @@ impl<'a> Raven<'a> {
             last_topic: None,
             transcript: Transcript::default(),
             asked_about: HashSet::new(),
+            thread: None,
         })
     }
 
@@ -506,6 +511,18 @@ impl<'a> Raven<'a> {
         };
         let mut ctx = TurnCtx::default();
         ctx.low = self.low_since.map(|t| self.turn - t <= self.cfg.raven.judges.low_turns).unwrap_or(false);
+        // the thread: what they brought up, in this turn or a short while ago
+        let brought: Option<u32> = turns.iter().rev().find_map(|t| match t {
+            Turn::Like(x) | Turn::Have(x) | Turn::Role(x) => Some(*x),
+            Turn::MyIs { noun, .. } | Turn::MyKind { noun, .. } | Turn::Happened { noun, .. } | Turn::Opinion { noun, .. } => Some(*noun),
+            Turn::PetNamed { noun, .. } | Turn::Age { noun, .. } => Some(*noun),
+            Turn::Ask(Question::Ask { topic: crate::question::Subject::Noun(n), .. }) => Some(*n),
+            _ => None,
+        });
+        if let Some(n) = brought {
+            self.thread = Some((n, self.turn));
+        }
+        ctx.thread = self.thread.filter(|&(_, t)| self.turn - t <= self.cfg.raven.judges.thread_turns).map(|(n, _)| n);
         let (mut openers, mut bodies, mut questions): (Vec<Part>, Vec<Part>, Vec<Part>) = (Vec::new(), Vec::new(), Vec::new());
         let q = |p: &mut Part| p.question = true;
 
@@ -565,8 +582,11 @@ impl<'a> Raven<'a> {
                         }
                     }
                     let what_is = matches!(q0, Question::Ask { intent: crate::question::Intent::WhatIs, .. });
+                    // (a question about itself is about itself: no old topic comes back after it)
+                    let about_me = matches!(q0, Question::Me(_) | Question::WhoAreYou | Question::HowAreYou | Question::Rules
+                        | Question::YouCan(..) | Question::YouAre(_) | Question::YouAreAdj(_));
                     let r = self.chat.answer_question(q0);
-                    let topic = self.chat.topic();
+                    let topic = if about_me { None } else { self.chat.topic() };
                     let mut text = self.warm(&r.text);
                     // what it is: the dictionary's own words too
                     if let (true, false, Some(tp)) = (what_is, r.why.is_empty(), topic) {
@@ -1003,6 +1023,21 @@ impl<'a> Raven<'a> {
             openers.extend(self.parts("not_followed", &b, |_| {}));
             if let Some(r) = reason {
                 bodies.push(Part { text: r, answer: true, ..Default::default() });
+            }
+        }
+        // the thread: questions about what they are talking about are always on offer
+        if let Some(th) = ctx.thread {
+            if !ctx.closing && !questions.iter().any(|p| p.mentions.contains(&th)) {
+                let key = if self.person.has.contains(&th) {
+                    if self.net.node(th).animate { "q_have_animal" } else { "q_have" }
+                } else {
+                    "q_topic"
+                };
+                let s = self.noun_slots(th, self.base());
+                questions.extend(self.parts(key, &s, |p| {
+                    p.question = true;
+                    p.mentions.push(th);
+                }));
             }
         }
         // the thread stays while what they say stays low

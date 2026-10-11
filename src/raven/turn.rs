@@ -158,7 +158,17 @@ fn noun_at(net: &Network, w: &[String], i: usize, end: usize) -> Option<u32> {
     if i >= end {
         return None;
     }
-    let mut j = if matches!(w[i].as_str(), "a" | "an" | "the" | "some" | "my" | "two" | "three") { i + 1 } else { i };
+    let mut j = if matches!(w[i].as_str(), "a" | "an" | "the" | "some" | "my" | "two" | "three" | "many" | "several" | "few" | "four" | "five") {
+        i + 1
+    } else {
+        i
+    };
+    // "plenty of motors", "a lot of cats", "lots of books", "a few dogs"
+    for q in [&["plenty", "of"][..], &["a", "lot", "of"][..], &["lots", "of"][..], &["a", "few"][..], &["a", "couple", "of"][..], &["loads", "of"][..]] {
+        if w[i..end].iter().map(|x| x.as_str()).take(q.len()).eq(q.iter().copied()) && i + q.len() < end {
+            j = i + q.len();
+        }
+    }
     // "my old dog": adjectives before the noun (the whole first, "hot dog" is a noun)
     if net.lookup(&w[j..end].join(" ")).iter().all(|&q| net.node(q).pos != Pos::Noun) {
         while j + 1 < end
@@ -580,7 +590,9 @@ pub fn read(net: &Network, text: &str, cx: &Context) -> (Vec<Turn>, bool) {
             }
         }
     }
-    let q = question::read(net, text);
+    // (a turn of several sentences is read sentence by sentence below)
+    let several = text.trim_end_matches(['?', '!', '.']).contains(['?', '!', '.']);
+    let q = if several { Question::Unknown(String::new()) } else { question::read(net, text) };
     // a bare noun phrase after Raven asked something ("every day") is an
     // answer to it, not a new thing to talk about
     let bare = matches!(q, Question::Ask { intent: question::Intent::About, .. })
@@ -608,6 +620,30 @@ pub fn read(net: &Network, text: &str, cx: &Context) -> (Vec<Turn>, bool) {
                     continue;
                 }
                 // a clause on its own may still be a question ("and what do dogs eat")
+                // "I like motors, not robots": "not X" turns the clause before round
+                if w.first().map(|x| x == "not").unwrap_or(false) && w.len() >= 2 {
+                    let x = noun_at(net, w, 1, w.len());
+                    let turned = match (out.last(), x) {
+                        (Some(Turn::Like(_)), Some(x)) => Some(Turn::Dislike(x)),
+                        (Some(Turn::Dislike(_)), Some(x)) => Some(Turn::Like(x)),
+                        (Some(Turn::Have(_)), Some(_)) => Some(Turn::Okay),
+                        _ => None,
+                    };
+                    if let Some(t) = turned {
+                        out.push(t);
+                        start = i + 1;
+                        continue;
+                    }
+                }
+                // "what are you? a robot, an AI or a frozen neural net?": the options are part of the question
+                if out.iter().any(|t| matches!(t, Turn::Ask(_))) {
+                    if let Question::Ask { intent: question::Intent::About, .. } | Question::Unknown(_) = question::read(net, &o.join(" ")) {
+                        if !w.is_empty() && !matches!(w[0].as_str(), "i" | "my" | "we") {
+                            start = i + 1;
+                            continue;
+                        }
+                    }
+                }
                 // "she is playful and friendly": a bare adjective goes on with the clause before
                 let more = match (out.last(), adj_at(net, w, 0, w.len())) {
                     (Some(Turn::MyIs { noun, .. }), Some(adj)) => Some(Turn::MyIs { noun: *noun, adj }),

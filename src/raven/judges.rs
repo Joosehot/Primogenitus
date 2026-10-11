@@ -11,6 +11,8 @@
 //!                    their name now and then (not every time)
 //!   keeps going      it asks back, but does not interrogate (a fourth
 //!                    question in a row)
+//!   keeps the thread while they talk of something, its questions are about it,
+//!                    not a question for anyone
 //!   stays with them  while they are low (a bad feeling told a short while
 //!                    ago), no cheerful question that would fit anyone and no
 //!                    fact: the conversation stays on them
@@ -149,6 +151,16 @@ pub fn score(parts: &[&Part], ctx: &TurnCtx, hist: &History, w: &RavenJudges) ->
     }
     if ctx.closing && asks > 0 {
         s += w.interrogation;
+    }
+    // keeps the thread: while they talk of something, a question for anyone is off it
+    if let Some(th) = ctx.thread {
+        if has(&|p| p.generic) && !has(&|p| p.mentions.contains(&th)) {
+            s += w.off_thread;
+        }
+        if has(&|p| p.question && p.mentions.contains(&th)) {
+            s += w.listens;
+            why.push("keeps the thread");
+        }
     }
     // stays with them while they are low
     if ctx.low {

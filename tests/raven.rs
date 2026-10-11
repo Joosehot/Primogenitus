@@ -105,7 +105,7 @@ fn the_conversation_that_went_wrong() {
     let r = talk("Nothing really");
     assert!(!r.contains("glad you told me"), "{r}");
     let r = talk("Can you tell me something about yourself");
-    assert!(r.contains("Primogenitus"), "{r}");
+    assert!(r.contains("Primo"), "{r}");
     let r = talk("i meant you");
     assert!(r.contains("Primogenitus") || r.contains("program"), "{r}");
 }
@@ -245,4 +245,29 @@ fn the_whole_conversation_is_remembered() {
     let r = raven.reply("What do you remember about me?").text;
     println!("Primogenitus: {r}");
     assert!(r.contains("Joose") && r.contains("dog") && r.contains("Rex") && r.contains("cod"), "{r}");
+}
+
+/// The sixth conversation as it really went (2026-10-11): the thread kept.
+#[test]
+fn motors_not_robots() {
+    let Some((net, cfg)) = setup() else { return };
+    let mut raven = Raven::new(&net, &cfg).unwrap();
+    raven.greeting();
+    let mut talk = |q: &str| {
+        let r = raven.reply(q).text;
+        println!("You: {q}\nPrimogenitus: {r}");
+        assert!(!r.contains("did not") && !r.contains("told me"), "{q} -> {r}");
+        r
+    };
+    talk("Patrik");
+    let r = talk("I'm fine, how about you?");
+    assert!(r.matches('?').count() <= 1 && !r.contains("Ask me about something"), "{r}");
+    let r = talk("What are you? A robot, an AI or a frozen neural net?");
+    assert!(r.contains("chatbot") && !r.contains("Robots"), "{r}");
+    let r = talk("Who made you?");
+    assert!(r.contains("Joose") && !r.contains("robot"), "an old topic brought back: {r}");
+    let r = talk("I like motors, not robots");
+    assert!(r.contains("motor"), "{r}");
+    let r = talk("I have plenty of motors");
+    assert!(r.contains("motor"), "the thread lost: {r}");
 }

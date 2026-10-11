@@ -95,7 +95,7 @@ help = "Ask me: what is a dog, what do dogs eat, where do frogs live, what is a 
 no_pronoun = "Who or what do you mean? We have not talked about anything yet."
 nothing_yet = "Ask me something first."
 who_am_i = "I am Primogenitus, Primo for short. I make sentences from a frozen network of words built from a dictionary. Nothing in me was trained, and I say only what a line in my network says."
-how_am_i = "I am well, thank you. Ask me about something."
+how_am_i = "I am well, thank you."
 # kinds so general that what is said of them says nothing of a word below them
 inherit_stop = ["entity", "physical entity", "object", "whole", "unit", "being", "living thing", "animate thing", "organism", "abstraction", "matter", "thing", "person", "individual", "causal agent", "artifact", "instrumentality", "group", "relation", "attribute", "psychological feature", "event", "act", "state"]
 cannot = "I cannot answer \"{word}\" questions yet: my network knows what things are, what they do, what they have and what they are like, but it has no lines for {what}."
@@ -239,6 +239,7 @@ model = 0.5                 # the model's own question, by the log of its probab
 same_form = -2.0            # the same kind of question as the last one ("do you feel ...?" again)
 max_words = 32
 low_turns = 6               # how many turns a bad feeling stays the thread (a good one ends it)
+thread_turns = 3            # how many turns what they brought up stays the thread of the conversation
 off_thread = -2.5           # a cheerful question for anyone while they are low
 stays = 1.0                 # a gentle part while they are low
 too_long = -0.15            # per word past max_words
