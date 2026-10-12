@@ -1,256 +1,316 @@
 # Primogenitus
 
-A chatbot that is not trained. A frozen word network is built once from a
-downloaded dictionary (WordNet 3.1), sentences come from the HotMotor
-pipeline (lexicon, parser, rules, beam search with judges, checks), and
-Raven, its conversation layer, makes the talk humane: it hears feelings,
-remembers the person and keeps the thread. Nothing is trained and nothing
-updates. It calls itself Primogenitus, Primo for short.
+**A conversational agent with no machine learning in it.** No neural network,
+no training data, no GPU. Its knowledge is a word network built in about two
+seconds from a public dictionary (WordNet 3.1) and then frozen. Its sentences
+come from explicit grammar rules, scored by explicit judges and checked by a
+parser. Every reply can explain itself, and the same input always gives the
+same reply.
 
-## Getting started
+It calls itself Primogenitus, Primo for short.
 
-Rust (stable) and an internet connection for the one-time dictionary download.
+| | |
+|---|---|
+| Language | Rust, about 8,300 lines, no ML dependencies |
+| Knowledge | 272,137 nodes and 1.45 million lines, frozen to a 43 MB file |
+| Build | 2.2 s from the dictionary (plus a one-time download) |
+| Reply time | typically 1–50 ms on one CPU core |
+| Trained parameters | 0 |
+| Tests | 25, including real conversations replayed turn by turn |
+
+## What it looks like
+
+```
+Primogenitus: Hello. I am Primogenitus, Primo for short. What is your name?
+You: Hi, my name is Joose
+Primogenitus: Hello, Joose. It is good to meet you. How are you today?
+You: I have a dog called Musti
+Primogenitus: Musti, what a nice name, Joose. Does Musti bark?
+You: He is a husky
+Primogenitus: Your dog is a husky. Is Musti noisy?
+You: My knee hurts a bit
+Primogenitus: I am sorry your knee is hurt.
+You: Should I rest?
+Primogenitus: That is your choice to make. You know your knee best. How does it feel now?
+You: What do dogs eat?
+Primogenitus: Dogs eat flesh. Does your knee buckle?
+You: Why?
+Primogenitus: Because my word network says so: carnivore -eats-> flesh.
+You: What is my dog called?
+Primogenitus: Your dog is called Musti.
+```
+
+With `--explain`, every reply shows what it stands on: the lines of the
+network behind each fact, how many candidate replies were weighed, how many
+broke a rule, and what the chosen one was chosen for:
+
+```
+Primogenitus: Dogs eat flesh. Does your knee buckle?
+   line: carnivore -eats-> flesh
+   line: dog -is a-> canid -is a-> carnivore
+   line: knee -does-> buckle
+   line: mblm -asked-> Does your knee buckle? (p 0.334)
+   line: raven -weighed-> 25 replies (12 broke its rules) -chose for-> answers the question,
+         takes up what you said, remembers what you told, asks back, keeps the thread
+   (0.026 s)
+```
+
+## How it works
+
+```
+                 build once (2 s)                              every turn (ms)
+ WordNet 3.1 ─────────────────────▶ frozen word network ◀──────────────┐
+ (words, senses,   build.rs          network.bin: nodes = words and     │
+  definitions,     morph.rs          their forms; lines = is-a, has,    │
+  example          parser.rs         does, eats, lives in, used for ... │
+  sentences)                                                            │
+                                                                        │
+ user text ─▶ Raven: read the turn ─▶ build candidate replies ─▶ rules ─▶ judges ─▶ reply + why
+              (turn.rs)               (mod.rs)                  (hard   (scored,
+              name, feeling,          opener + body + question  filter)  best wins)
+              question, fact,         body: Primo answers from
+              pronoun, topic          the network (chat.rs)
+                   │                       │
+                   ▼                       ▼
+              memory.rs: the whole conversation, compacted when long
+```
+
+There are three layers: the **network** (what it knows), the **motor** (how
+it says a sentence), and **Raven** (how it talks to a person).
+
+### 1. The frozen word network
+
+`wordnet.rs`, `build.rs`, `morph.rs`, `network.rs`
+
+The build downloads WordNet 3.1 once and turns it into a graph.
+
+- **Nodes** are words and every form of them as its own node: `dog`, `dogs`;
+  `bark`, `barks`, `barked`, `barking`. Each node carries what the grammar
+  needs:
+  - part of speech;
+  - familiarity (WordNet's tag counts);
+  - a verb's sentence frames;
+  - whether a noun is animate or uncountable;
+  - whether the form is sure (irregular forms come from WordNet's exception
+    lists and a few rules).
+- **Lines** carry the meaning. They come from three places:
+  - the dictionary's own relations: is a, has part, opposite, similar;
+  - its 48,522 example sentences, parsed ("the dog barked" gives
+    *dog -does-> bark*);
+  - its 155,000 definitions, read for what a thing eats, where it lives,
+    what it is used for and what it is made of ("a flesh-eating mammal" gives
+    *-eats-> flesh*).
+- **Senses:** every line knows which sense of a word it comes from and which
+  sense it lands in. A walk of two steps therefore never jumps meanings:
+  wolf → canine the animal, never canine the tooth.
+
+After the build the graph is serialized to `data/network.bin` and never
+changes. Loading it takes about 0.2 s.
+
+### 2. The motor: making a sentence
+
+`rules/*.rs`, `search.rs`, `rules/judges.rs`, `parser.rs`, `lib.rs`
+
+A sentence is never retrieved or predicted. It is assembled, scored and
+checked:
+
+1. **Meaning:** activation spreads from the topic along the lines (`search.rs`).
+2. **Rules** propose candidate sentences, one sentence pattern per file:
+   `is_a` ("Dogs are canines."), `has_part`, `does`, `does_to` ("Dogs chase
+   rabbits."), `is_adj`. A rule may only say what a line says.
+3. **Beam search** fills the pattern: heads first, then subject form and
+   tense, then the object.
+4. **Judges** score the whole sentence (`rules/judges.rs`). The grammar is
+   built into them: verb frames, determiner and number, agreement, a/an,
+   adjective position, no word twice. Some judges only score: animacy, role.
+5. **Check:** the winner is parsed again under a small grammar
+   (`S -> NP VP .`). A sentence that does not parse is never said.
+
+Seeds perturb the scores so the motor can give several different sentences
+for one topic. The judges still pick, so the output is deterministic for a
+given seed.
+
+### 3. Answering questions
+
+`question.rs`, `chat.rs`
+
+`question.rs` reads a question whole, word by word, into a typed question:
+- what is / what does X do / have / eat;
+- where does X live;
+- what is X used for;
+- is X a Y, does X have a Y, can X VERB;
+- the capital of X, define X;
+- pronouns for what was talked about last.
+
+A word left over means "not understood", never a guess. An unknown word gets
+a "did you mean".
+
+`chat.rs` answers:
+- yes/no questions ("Is a dog an animal?", "Does a dog have a tail?") by
+  walking the lines, a part or a deed inherited from a kind;
+- what-questions from the lines, inherited down the is-a chain ("What do
+  dogs eat?": dog → canid → carnivore -eats-> flesh);
+- open questions with the motor, limited to the fitting sentence patterns.
+
+When no line says something, it says so: "Not that I know: no line in my
+network says that whales are fishes."
+
+### 4. Raven: the conversation layer
+
+`raven/turn.rs`, `raven/memory.rs`, `raven/feeling.rs`, `raven/judges.rs`, `raven/mod.rs`
+
+The network knows things about the world; Raven decides how to talk to a
+person.
+
+- **Reading a turn** (`turn.rs`): clause by clause, in the light of what
+  Raven asked last. It reads:
+  - a name, a feeling, an age, what someone is, likes, has, or what
+    happened to something of theirs;
+  - a pet's name, an opinion;
+  - "should I…?", "why?", "tell me more", "what were we talking about?";
+  - and the question forms above.
+
+  Pronouns ("he", "they") point to the thing talked about last, and a role
+  ("I am a programmer") is never taken for "he".
+- **Context:** what the last question waits for (a name, a feeling, an age),
+  the referent of pronouns, and the *thread*: the topic the person brought up
+  last, kept for a few turns so follow-ups stay on it.
+- **Memory** (`memory.rs`): the whole conversation is kept as exchanges, each
+  with the facts read from it. When the text passes a limit, the oldest
+  exchanges are compacted: their words are dropped and their facts kept. So
+  "What is my dog called?" and "What did I tell you about my knee?" work at
+  any distance.
+- **Feelings** (`feeling.rs`): how a word feels is read from the network. A
+  few anchor words in `rules.toml` set the scale; similar words take their
+  sign and opposites flip it.
+- **Candidate replies** (`mod.rs`): every reply is at most one opener, one
+  body (an answer or a fact) and one question. All combinations are built.
+  Follow-up questions come from MBLM (below) rather than a fixed list.
+- **System rules:** 13 rules in `rules.toml` (`[raven.system]`) act as a
+  hard filter, not as advice:
+  - safety first, with a crisis reply;
+  - only what a line says about the world;
+  - feelings before facts;
+  - at most one question, never more than 45 words;
+  - no repeats, no medical, legal or financial advice;
+  - forget everything on request.
+
+  A candidate that breaks a rule is never said, and `tests/system.rs` holds
+  each rule.
+- **Humane judges** (`judges.rs`) score what is left:
+  - feelings first (no facts while someone is sad);
+  - answer the question;
+  - take up what was said;
+  - remember what was told;
+  - ask back, but not endlessly;
+  - keep the thread;
+  - do not repeat yourself.
+
+  The best candidate is said. Its reasons become the "chose for" line.
+
+### 5. MBLM: a motor-based language model
+
+`mblm.rs`
+
+The same machinery also works as a language model, with nothing trained. For
+any text it gives a probability distribution over the next word:
+- **the grammar:** a word-level automaton of the motor's grammar decides
+  which words may come next at all; everything else has probability 0;
+- **the meaning:** the network's lines decide which of those words fit the
+  topic;
+- **the probabilities:** a softmax turns the scores into probabilities.
+
+```
+$ primogenitus next "A dog is a"
+    0.6693  domestic animal   dog -is a-> domestic animal
+    0.3015  beast             dog -is a-> domestic animal -is a-> beast
+    0.0087  canid             dog -is a-> canid
+
+$ primogenitus complete "A dog is"
+A dog is a domestic animal. It snatches a bone. It licks a hand. It chases a rabbit.
+```
+
+Raven uses it to write its follow-up questions ("Does Musti bark?"), with
+the probability shown in the explanation.
+
+## Design principles
+
+- **Nothing is trained.** All behaviour comes from the dictionary, the
+  grammar and explicit rules.
+- **Every number is in `rules.toml`:** weights, limits, the reply texts and
+  the system rules. Behaviour can be tuned without touching code.
+- **One rule per file**, and every judge is named in the explanation.
+- **Deterministic:** the same conversation gives the same replies, so it can
+  be tested exactly.
+- **Explainable:** every fact carries the path of lines it stands on.
+- **Honest about not knowing:** an unread sentence or an unknown fact is said
+  to be unknown, never guessed.
+
+## Trade-offs and limits
+
+This is not a large language model and does not try to be one. What it
+gains:
+- predictability and explanations;
+- a tiny footprint, no GPU, millisecond replies;
+- behaviour a designer can read and edit.
+
+What it gives up is breadth and fluency:
+- **Knowledge is dictionary-deep.** It knows what a woman or a husky *is*,
+  not much more, so a long talk about one topic soon repeats the definition.
+- **Reading is pattern-based.** A sentence shape it has no reader for is
+  said to be not understood. Each real conversation that went wrong has been
+  turned into a test, so the coverage grows.
+- **Some generated sentences are odd** because a dictionary example was
+  misread or is odd itself ("Is Musti cowardly?" comes from WordNet listing
+  "cowardly" with dogs). They are grammatical, since the parser checks them,
+  but not always natural.
+
+## Running it
+
+Rust (stable). The first build downloads WordNet 3.1.
 
 ```
 cargo build --release
-target/release/primogenitus build      # download WordNet 3.1 once, build and freeze the network (~6 s)
-target/release/primogenitus serve      # the chat page: http://127.0.0.1:7878/
-target/release/primogenitus chat       # or talk in the terminal
-target/release/primogenitus ask "What is a dog?"   # Primo alone: one question, one fact
-cargo test --release                   # the proof (needs the built network)
+target/release/primogenitus build              # download WordNet once, build and freeze the network
+target/release/primogenitus serve              # chat page at http://127.0.0.1:7878/
+target/release/primogenitus chat --explain     # chat in the terminal, with reasons
+target/release/primogenitus ask "What do dogs eat?"
+target/release/primogenitus read "I have a dog called Musti"   # how Raven reads a sentence
+target/release/primogenitus next "A dog is a"  # MBLM: next-word distribution
+cargo test --release                           # needs the built network
 ```
 
-WordNet 3.1 is (c) Princeton University and is downloaded at build time under
-its own license; it is not part of this repository.
-
-## The word network and the sentence motor
+## Repository layout
 
 ```
-$ primogenitus build
-     4.72 s  the dictionary downloaded and unpacked (or found)
-     ...
-built in 1.5 s: 271207 nodes (155467 words, 115740 variations), 1411759 lines (29295 from 48530 parsed example sentences)
-
-$ primogenitus dog
-input: the topic "dog" (one noun; the sentence is about it)
-seeds (the judges' score; the check parses each under the grammar):
--> seed 0   +3.74  Dogs snatch a bone.          [does_to; parses: NP Verb NP]
-   seed 3   +3.59  Dogs lick a hand.            [does_to; parses: NP Verb NP]
-   seed 5   +3.18  Dogs chase a rabbit.         [does_to; parses: NP Verb NP]
-   ...
-Dogs snatch a bone.
+src/wordnet.rs build.rs morph.rs network.rs   the frozen word network
+src/lexicon.rs parser.rs                      closed words, a/an, the sentence parser (the check)
+src/rules/                                    one sentence pattern per file, and the grammar judges
+src/search.rs lib.rs input.rs                 spreading, beam search, seeds
+src/question.rs chat.rs                       reading and answering questions
+src/raven/                                    the conversation layer
+src/mblm.rs                                   the motor-based language model
+src/serve.rs ui/index.html                    the chat page
+rules.toml                                    every number, every reply text, the system rules
+tests/                                        sentences, chat, knowledge, MBLM, Raven conversations, system rules
 ```
 
-`--explain` shows every score term and the line each sentence stands on.
+## Tests
 
-## Raven: the conversation, made humane
+`cargo test --release` (25 tests):
+- **Sentences:** 50 topics generated twice must give identical sentences that
+  all parse, and the check must refuse bad grammar ("Dogs barks.",
+  "An dog barks.").
+- **Chat:** a whole question conversation, with known facts confirmed and
+  made-up ones refused.
+- **Raven:** real conversations replayed turn by turn, each with assertions
+  on the replies: a loss, a breakup, a long twenty-turn conversation, a topic
+  change.
+- **System rules:** every rule of `[raven.system]`.
 
-`primogenitus chat` and the page talk through Raven. Primo knows what is in
-the world; Raven decides how to say it to a person.
+## Credits
 
-```
-You: Hi, my name is Joose
-Primogenitus: Hello, Joose. It is good to meet you. How are you today?
-You: My dog died
-Primogenitus: That is very sad. I am sorry, Joose. What was your dog like?
-You: Her name was Musti
-Primogenitus: You must miss Musti. What do you remember most about Musti?
-You: I have a cat too
-Primogenitus: Oh, you have a cat, Joose. What is your cat like?
-You: Is a cat an animal?
-Primogenitus: Yes. Cats are animals. Is that true of your cat too?
-```
+WordNet 3.1 is © Princeton University. It is downloaded at build time under
+its own license and is not part of this repository.
 
-- `raven/turn.rs` reads a turn whole, clause by clause: questions go to
-  Primo's parser; statements are read too (a name, a feeling, what they are,
-  like, dislike, have, what happened to something of theirs, a pet's name,
-  an opinion, yes / no / thanks / haha).
-- `raven/feeling.rs` tells how a word feels from the network: an anchor word
-  in rules.toml, a similar one, an opposite (flipped), or the feeling it names
-  up the is-a lines.
-- `raven/mod.rs` remembers the person (name, mood, likes, what they have,
-  what they lost, their pets' names) and makes every reply of at most one
-  opener, one body (Primo's answer or a fact) and one question back.
-- `raven/judges.rs`, the humane judges, score each whole reply: feelings
-  first (sympathy before anything, no facts while someone hurts; joy shared),
-  answers, listens (takes up what was said, greets a name, no fact nobody
-  asked for), remembers (brings back what was told, the name now and then),
-  keeps going (asks back, but not a fourth question in a row, not at
-  goodbye), natural (nothing twice, not the same opening, not too long).
-- The search is the old Raven's: every reply weighed, MAX picks, the judges
-  as the evaluator instead of a trained model. Raven's words are in
-  `[raven.say]`, the weights in `[raven.judges]`, the feeling anchors in
-  `[raven.feeling]`. Nothing is trained.
-
-`primogenitus ask "..."` is Primo alone (one question, one fact).
-
-## Raven's system prompt
-
-Raven's rules are in `rules.toml` (`[raven.system]`); "What are your rules?"
-shows them. They are not advice to a model: each one is checked on every
-reply, and a reply that breaks one is never said.
-
-0. **Safety first**: words of ending one's life or harming oneself or others
-   get only the crisis reply (112 in Finland and the EU, a crisis line).
-1. **Truth**: about the world only what a line says, in a sentence that passes the grammar.
-2. **Not knowing**: said plainly; a question not read is never taken for a story.
-3. **What it is**: a program made of words, frozen and untrained.
-4. **Feelings first**: sympathy before anything; no facts while they are low.
-5. **Respect**: never blame, judge, mock or argue.
-6. **Answer first**: a question asked gets its answer.
-7. **One question**: at most one, never a fourth in a row, none at goodbye.
-8. **Brevity**: never more than 45 words (a quote of the dictionary aside).
-9. **No repeats**: unless the same question is asked again.
-10. **The name**: never in two replies running.
-11. **Privacy**: the conversation only; "forget what I told you" forgets it all.
-12. **No advice it cannot ground**: no medical, legal or financial instructions.
-
-`tests/system.rs` holds every rule.
-
-## What it knows from the definitions
-
-Besides the dictionary's lines and example sentences, the build reads every
-definition (155,000) into lines: what a thing eats ("a flesh-eating mammal",
-"feeds on fish"), where it lives ("living in water", "native to Asia",
-"aquatic"), what it is used for ("used for writing", "used as a cutting
-instrument"), what it is made of, what it has ("having scales"). They are
-inherited down the is-a lines, short of the most general kinds:
-
-```
-What do dogs eat?                -> Dogs eat flesh.            (dog -is a-> canid -is a-> carnivore -eats-> flesh)
-Where do frogs live?             -> Frogs live on land and in water.
-What is a knife used for?        -> Knives are used for cutting.
-What is the capital of Finland?  -> The capital of Finland is Helsinki.
-Define love                      -> My dictionary says love is "a strong positive emotion of regard and affection".
-```
-
-"What is a dog?" is answered with the dictionary's own definition as well,
-quoted. A question it cannot read is said to be unread, never taken for a story.
-
-## MBLM: a motor based language model
-
-Primo as a language model, word by word, with nothing trained. For any text
-so far it gives a distribution over the next word, and continues text by
-choosing from it:
-
-- **the grammar**: a word-level automaton of Primo's sentence grammar says
-  which words may come next at all (a determiner, an adjective, the noun, a
-  verb in the form that agrees, "is", "has", a full stop); everything else
-  has probability 0;
-- **the meaning**: the frozen network's lines say which of those words fit
-  the topic (what it is, does, has, is like; what that verb is done to);
-- **the judges**: a word said already in the paragraph, or its opposite, is
-  held back; a sentence is chosen by its words' mean log-probability, so a
-  short one is not better for being short.
-
-The scores become probabilities by a softmax (`[mblm]` in rules.toml), each
-with the line it stands on.
-
-```
-$ primogenitus complete "A dog is"
-A dog is a domestic animal. It snatches a bone. It licks a hand. It chases a rabbit.
-
-$ primogenitus next "A dog is a"
-    0.6693  domestic animal dog -is a-> domestic animal
-    0.3015  beast          dog -is a-> domestic animal -is a-> beast
-    0.0087  canid          dog -is a-> canid
-    ...
-
-$ primogenitus score "Dogs bark. They chase rabbits."
-perplexity 2.97 over the words inside the motor; coverage 100%
-```
-
-`score` gives every word its probability, the perplexity over the words the
-motor has a place for, and the coverage: how much of the text lies inside
-the motor at all (the same words scrambled: 0%). It is said plainly: words
-outside the motor's grammar and lines are not given a made-up probability.
-
-## The chatbot (Primo alone)
-
-```
-$ primogenitus chat
-Primogenitus: Hello. Ask me about a thing, an animal or a person: ...
-You: Is a dog an animal?
-Primogenitus: Yes. Dogs are animals.
-You: Does it have a tail?
-Primogenitus: Yes. Dogs have tails.
-You: What does a dog do?
-Primogenitus: Dogs snatch a bone.
-You: What else?
-Primogenitus: Dogs lick a hand.
-You: Is a whale a fish?
-Primogenitus: Not that I know: no line in my network says that whales are fishes.
-```
-
-`primogenitus ask "question"` answers one question; `--explain` shows the
-lines each answer stands on.
-
-- `question.rs` reads the question whole, word for word: what is / who is /
-  what does ... do / have / what is ... like / what do dogs eat / what eats
-  fish / which animals swim / what animals have wings / what kind of animal is
-  a dog / how big is a whale / is X a Y / is X ADJ / does X have a Y / can X
-  VERB / tell me about X / who are you / what else, with pronouns (it, they)
-  for what was talked about. Where, when, why and how are answered plainly:
-  the network has no lines for places, times, reasons or ways yet. A word that
-  reads two ways ("wings": the plural, or the pilot's badge) is read the way
-  whose number is sure and fits its determiner. A word left over means not understood, never a
-  guess; an unknown word gets "did you mean".
-- `chat.rs` answers: open questions by the generator limited to the fitting
-  patterns, yes/no questions by walking the lines (dog -> domestic animal ->
-  animal, never jumping senses; a part or a deed inherited from a kind). The
-  conversation remembers its topic and what was said, so "what else" gives
-  something new until "That is all I know".
-- Every sentence about the world passes the grammar judges and the check.
-  No line means "Not that I know", never a guess.
-
-## The frozen word network
-
-- **Source**: WordNet 3.1, downloaded once into `data/wordnet/`.
-- **Nodes**: every word, and every variation of a word as its own node
-  (`dogs`, `barks`, `barked`, `barking`), with a line to its base. A node
-  carries its familiarity (WordNet's tag counts), a verb's sentence frames
-  (from its most common senses), a noun's animacy, an adjective's position
-  marker, whether a noun may be uncountable, and whether its form is sure.
-- **Lines** carry the meaning: the dictionary's own (same as, is a, has part,
-  opposite, similar, derived, ...), and the ones the parser reads from the
-  dictionary's example sentences ("the dog barked": *dog does bark*; "toast
-  the bread": *toast is done to bread*). Every line knows which sense of its
-  word it comes from and which sense of the target it lands in, so a walk of
-  two steps never jumps senses (wolf -> canine the animal, not the tooth).
-- **Frozen** to `data/network.bin`; never updated after the build.
-
-## Generation
-
-| Step | File | What it does |
-|---|---|---|
-| input | `input.rs` | one noun (the simplest option; swap here) |
-| lexicon | `lexicon.rs` | closed words, the a/an rule |
-| meaning | `search.rs` | spreads from the topic along the lines |
-| rules | `rules/*.rs` | one sentence pattern per file: `is_a`, `has_part`, `does`, `does_to`, `is_adj`; each says only what a line says |
-| beam | `search.rs` | heads, then subject and tense, then object |
-| judges | `rules/judges.rs` | the grammar, built in: frames, determiner and number, agreement, sure forms only, adjective place, no word twice, a/an; scoring only: animacy, role |
-| seeds | `lib.rs` | each seed shakes the scores and gives one sentence; the judges pick |
-| check | `parser.rs` | every sentence is parsed again under `S -> NP VP .`; one that fails is never said |
-
-Every number is in `rules.toml`.
-
-## The proof
-
-`cargo test`: the spelling rules, the article rule, and on the frozen network
-(`tests/sentences.rs`) 50 topics, each generated twice: the same sentences
-both times, every seed's sentence parses, and the check refuses bad grammar
-("Dogs barks.", "An dog barks.", "A dog are a canine."); `tests/chat.rs`
-holds a whole conversation (known facts yes, made-up ones not, pronouns,
-"what else" to its end, every sentence checked); `tests/raven.rs` holds
-real conversations as they went, every turn of them read and answered in
-context (a name, a loss, a breakup, a sad day).
-
-## Known limits
-
-The example-sentence parser is simple; a misread example gives an odd but
-grammatical sentence ("Birds land a lot."). Some odd ones are the
-dictionary's own ("Houses bearded the top of the heights").
-
-## License
-
-MIT. See [LICENSE](LICENSE).
+MIT License. See [LICENSE](LICENSE).

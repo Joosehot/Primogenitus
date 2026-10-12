@@ -494,6 +494,9 @@ fn clause(net: &Network, w: &[String], o: &[String], cx: &Context) -> Option<Tur
                 rest = &rest[..rest.len() - 1];
             }
             match rest {
+                ["is" | "was", "a" | "an", ..] if rest.len() >= 3 && noun_at(net, w, e + 1, n).is_some() => {
+                    return noun_at(net, w, e + 1, n).map(|kind| MyKind { noun, kind });
+                }
                 ["is" | "was", ..] if rest.len() >= 2 => {
                     if let Some(adj) = adj_at(net, w, e + 1, n) {
                         return Some(MyIs { noun, adj });
@@ -520,6 +523,12 @@ fn clause(net: &Network, w: &[String], o: &[String], cx: &Context) -> Option<Tur
     // "she was very playful", "it is sick", "he died": what they talked of last
     if let (Some(noun), true) = (cx.referent, matches!(s[0], "he" | "she" | "it" | "they")) {
         if n >= 3 && matches!(s[1], "is" | "was" | "are" | "were") {
+            // "he is a husky": after "a" it is a kind ("husky" is an adjective too)
+            if matches!(s[2], "a" | "an") {
+                if let Some(kind) = noun_at(net, w, 2, n) {
+                    return Some(MyKind { noun, kind });
+                }
+            }
             if let Some(adj) = adj_at(net, w, 2, n) {
                 return Some(MyIs { noun, adj });
             }
