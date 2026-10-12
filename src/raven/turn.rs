@@ -126,6 +126,8 @@ pub enum Turn {
     WhatAbout,
     /// "should I rest?": a choice that is theirs
     Advise(u32),
+    /// "I am 22 years old": their own age, as said
+    MyAge(String),
 }
 
 /// The turn's words, lower case, contractions opened; and as written (for names).
@@ -135,6 +137,9 @@ fn words(text: &str) -> (Vec<String>, Vec<String>) {
     for w in text.split(|c: char| c.is_whitespace() || ",.?!;:".contains(c)).filter(|s| !s.is_empty()) {
         let w = w.replace('\u{2019}', "'");
         let l = w.to_lowercase();
+        if matches!(l.as_str(), "fucking" | "fuckin" | "freaking" | "frickin" | "bloody" | "damn" | "goddamn" | "effing") {
+            continue;
+        }
         let open: Vec<&str> = match l.as_str() {
             "i'm" | "im" => vec!["i", "am"],
             "i've" => vec!["i", "have"],
@@ -275,6 +280,14 @@ fn clause(net: &Network, w: &[String], o: &[String], cx: &Context) -> Option<Tur
     if matches!(s.as_slice(), ["what", "were" | "are", "we", "talking", "about"] | ["what", "did", "we", "talk", "about"]
         | ["what", "was", "i", "saying"] | ["where", "were", "we"]) {
         return Some(WhatAbout);
+    }
+    // "I am 22 years old", "22 years old", "I am 22": their own age
+    let num = |x: &str| x.chars().all(|c| c.is_ascii_digit()) && !x.is_empty() && x.len() <= 3;
+    match s.as_slice() {
+        ["i", "am", a, "years", "old"] | [a, "years", "old"] | ["i", "am", a] | ["i", "am", a, "years"] if num(a) => {
+            return Some(MyAge(a.to_string()));
+        }
+        _ => {}
     }
     // "what do you think about huskies?": what Raven knows of it
     if s.starts_with(&["what", "do", "you", "think"]) && matches!(s.get(4), Some(&"about") | Some(&"of")) {

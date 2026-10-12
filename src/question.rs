@@ -238,7 +238,11 @@ fn verb_as(net: &Network, w: &str, forms: &[Form]) -> Option<u32> {
 }
 
 pub fn read(net: &Network, text: &str) -> Question {
-    let t = words(text);
+    let mut t = words(text);
+    // "but let's talk about women", "well, can we talk about it": the lead word changes nothing asked
+    while t.len() > 1 && matches!(t[0].as_str(), "but" | "well" | "so" | "ok" | "okay" | "anyway" | "oh" | "now" | "then") {
+        t.remove(0);
+    }
     let s: Vec<&str> = t.iter().map(|w| w.as_str()).collect();
     use Question::*;
     match s.as_slice() {
@@ -403,6 +407,9 @@ pub fn read(net: &Network, text: &str) -> Question {
     for p in [&["let's", "talk", "about"][..], &["lets", "talk", "about"][..], &["let", "us", "talk", "about"][..],
               &["can", "we", "talk", "about"][..], &["could", "we", "talk", "about"][..], &["shall", "we", "talk", "about"][..],
               &["i", "want", "to", "talk", "about"][..], &["i'd", "like", "to", "talk", "about"][..], &["talk", "about"][..],
+              &["i", "would", "like", "to", "talk", "about"][..], &["i", "would", "love", "to", "talk", "about"][..],
+              &["i", "wanna", "talk", "about"][..], &["we", "could", "talk", "about"][..], &["how", "about", "we", "talk", "about"][..],
+              &["i", "would", "rather", "talk", "about"][..], &["i", "want", "to", "talk", "more", "about"][..],
               &["i", "want", "to", "know", "about"][..], &["i", "want", "to", "know", "more", "about"][..],
               &["tell", "me", "more", "about"][..], &["i", "would", "like", "to", "know", "more", "about"][..]] {
         if s.starts_with(p) {

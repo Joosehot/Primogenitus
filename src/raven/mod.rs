@@ -47,6 +47,8 @@ pub struct Person {
     pub described: Vec<u32>,
     /// they said they made Raven
     pub creator: bool,
+    /// their age, as said
+    pub age: Option<String>,
 }
 
 impl TurnCtx {
@@ -118,7 +120,7 @@ const SAY_KEYS: &[&str] = &[
     "no_talk", "nice_trait", "heard_bad", "nothing", "creator", "compliment", "insult", "about_me", "empathy_mild",
     "often", "repair", "hard_news", "good_news_self", "yes_low", "heard_low", "who_am_i_more", "recall",
     "recall_none", "recall_none_about", "my_name", "my_name_none", "pet_name_is", "pet_name_was", "pet_name_none",
-    "did", "my_role", "my_role_none", "why_line", "why_told", "why_none", "we_talked", "we_talked_none", "advise", "advise_about",
+    "my_age", "did", "my_role", "my_role_none", "why_line", "why_told", "why_none", "we_talked", "we_talked_none", "advise", "advise_about",
 ];
 
 pub struct Raven<'a> {
@@ -517,7 +519,7 @@ impl<'a> Raven<'a> {
         ctx.low = self.low_since.map(|t| self.turn - t <= self.cfg.raven.judges.low_turns).unwrap_or(false);
         // the thread: what they brought up, in this turn or a short while ago
         let brought: Option<u32> = turns.iter().rev().find_map(|t| match t {
-            Turn::Like(x) | Turn::Have(x) | Turn::Role(x) => Some(*x),
+            Turn::Like(x) | Turn::Have(x) => Some(*x),
             Turn::MyIs { noun, .. } | Turn::MyKind { noun, .. } | Turn::Happened { noun, .. } | Turn::Opinion { noun, .. } => Some(*noun),
             Turn::PetNamed { noun, .. } | Turn::Age { noun, .. } | Turn::HaveNamed { noun, .. } | Turn::About(noun) => Some(*noun),
             Turn::Ask(Question::Ask { topic: crate::question::Subject::Noun(n), .. }) => Some(*n),
@@ -1027,6 +1029,10 @@ impl<'a> Raven<'a> {
                         p.mentions.push(noun);
                     }));
                 }
+                Turn::MyAge(age) => {
+                    self.person.age = Some(age.clone());
+                    openers.extend(self.parts("my_age", &b.clone().set("age", age), |p| p.memory = true));
+                }
                 Turn::Did(v) => {
                     let s = self.verb_slots(v, b.clone());
                     openers.extend(self.parts("did", &s, |p| p.mentions.push(v)));
@@ -1168,6 +1174,11 @@ impl<'a> Raven<'a> {
                 .map(|p| Part { text: format!("{}, {name}.", p.text.trim_end_matches('.')), name: true, ..p.clone() })
                 .collect();
             openers.extend(named);
+        }
+        // a person is not had: no "do you have a woman?"
+        if let Some(person) = self.net.base("person", Pos::Noun) {
+            let net = self.net;
+            questions.retain(|p| !(p.text.starts_with("Do you have") && p.mentions.iter().any(|&m| m == person || kind_path(net, m, person).is_some())));
         }
         let reply = self.search(openers, bodies, questions, &ctx);
         self.last_why = reply.why.iter().filter(|w| !w.starts_with("raven ") && !w.starts_with("mblm ")).cloned().collect();

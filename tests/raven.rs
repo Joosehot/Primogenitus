@@ -318,3 +318,29 @@ fn a_long_conversation_holds() {
     let r = talk("What were we talking about?");
     assert!(r.contains("We were talking about"), "{r}");
 }
+
+#[test]
+fn talking_about_women() {
+    // the owner's conversation (2026-10-12): a topic asked for three ways, "women"
+    // unknown, "do you have a man?", "do you like men?" after "not", a curse in a no
+    let Some((net, cfg)) = setup() else { return };
+    let mut raven = Raven::new(&net, &cfg).unwrap();
+    let mut talk = |q: &str| {
+        let r = raven.reply(q).text;
+        println!("You: {q}\nPrimogenitus: {r}");
+        r
+    };
+    talk("I am Joose, your creator");
+    talk("I am fine, how about you?");
+    for ask in ["I would like to talk about women", "But lets talk about women", "Can we talk about women"] {
+        let r = talk(ask);
+        assert!(r.to_lowercase().contains("woman") && !r.contains("did not") && !r.contains("do not know the word"), "{ask}: {r}");
+        assert!(!r.contains("Do you have a woman"), "a person is not had: {r}");
+    }
+    let r = talk("I am a handsome man, 22 years old");
+    assert!(!r.contains("Do you have a man") && !r.contains("Do you like men"), "{r}");
+    let r = talk("I am a man heterosexual so not");
+    assert!(!r.contains("Do you like men") && !r.contains("Do you have a man"), "{r}");
+    let r = talk("No I fucking dont");
+    assert!(!r.contains("did not"), "a curse changes nothing read: {r}");
+}

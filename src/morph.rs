@@ -47,6 +47,10 @@ fn last_word(w: &str) -> (&str, &str) {
 }
 
 /// The variations of a base word: (text, form, sure).
+/// Nouns in -man whose plural is -mans.
+const NOT_MEN: &[&str] = &["human", "german", "roman", "shaman", "talisman", "caiman", "cayman", "ottoman", "dragoman", "hetman",
+                           "doberman", "walkman", "brahman", "mussulman", "firman", "desman", "ataman", "pullman", "superhuman", "inhuman"];
+
 /// Verbs whose past and past participle are the base itself.
 const UNCHANGED: &[&str] = &["hurt", "cut", "put", "hit", "let", "set", "shut", "cost", "quit", "split", "spread", "burst", "cast",
                              "bet", "bid", "broadcast", "thrust", "upset", "beat", "fit", "knit", "rid", "shed", "slit", "wet"];
@@ -62,7 +66,10 @@ pub fn forms(base: &str, pos: Pos, irregular: &[String]) -> Vec<(String, Form, b
             } else {
                 let (head, last) = last_word(base);
                 let sure = !unsure && !ends_consonant_o(last);
-                out.push((format!("{head}{}", s_form(last)), Form::Plural, sure));
+                // "woman" -> "women", "fireman" -> "firemen" (WordNet's morphy has it as a rule, not an exception)
+                let man = last.ends_with("man") && !NOT_MEN.contains(&last);
+                let plural = if man { format!("{}men", &last[..last.len() - 3]) } else { s_form(last) };
+                out.push((format!("{head}{plural}"), Form::Plural, sure));
             }
         }
         Pos::Verb => {
