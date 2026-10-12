@@ -212,6 +212,16 @@ my_name_none = ["You have not told me your name yet. What is it?"]
 pet_name_is = ["Your {noun} is called {pet}."]
 pet_name_was = ["Your {noun} was called {pet}."]
 pet_name_none = ["You have not told me your {noun}'s name yet."]
+did = ["{verbing}, that sounds good.", "Nice, {verbing}.", "That is a good bit of {verbing}."]
+my_role = ["You are {a_noun}.", "You told me you are {a_noun}."]
+my_role_none = ["You have not told me what you do yet. What do you do?"]
+why_line = ["Because my word network says so: {line}."]
+why_told = ["Because of what you told me about {nouns}."]
+why_none = ["I do not know why. My words did not say."]
+we_talked = ["We were talking about your {noun}."]
+we_talked_none = ["We were talking about {nouns}."]
+advise = ["That is your choice to make. What makes you think of {verbing}?", "Only you can decide that. How do you feel about {verbing}?"]
+advise_about = ["That is your choice to make. You know your {noun} best. How does it feel now?", "Only you can decide that. You told me about your {noun}. What does it need, do you think?"]
 
 # The whole conversation is remembered. Past max_words of kept text, the
 # oldest exchanges are compacted down to keep_words: their words are let go,

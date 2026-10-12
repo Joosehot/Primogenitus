@@ -47,6 +47,10 @@ fn last_word(w: &str) -> (&str, &str) {
 }
 
 /// The variations of a base word: (text, form, sure).
+/// Verbs whose past and past participle are the base itself.
+const UNCHANGED: &[&str] = &["hurt", "cut", "put", "hit", "let", "set", "shut", "cost", "quit", "split", "spread", "burst", "cast",
+                             "bet", "bid", "broadcast", "thrust", "upset", "beat", "fit", "knit", "rid", "shed", "slit", "wet"];
+
 pub fn forms(base: &str, pos: Pos, irregular: &[String]) -> Vec<(String, Form, bool)> {
     let multi = base.contains(' ');
     let mut out = Vec::new();
@@ -87,6 +91,8 @@ pub fn forms(base: &str, pos: Pos, irregular: &[String]) -> Vec<(String, Form, b
                 }
             }
             let (past, part, sure) = match pasts.len() {
+                // past and participle the same as the base ("it hurt", "I cut it"): not in the exceptions, which list only changes
+                0 if UNCHANGED.contains(&base) => (base.to_string(), base.to_string(), true),
                 0 => {
                     let p = if base.ends_with('e') {
                         format!("{base}d")

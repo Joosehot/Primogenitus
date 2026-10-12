@@ -112,6 +112,20 @@ pub enum Turn {
     Laugh,
     Okay,
     Sorry,
+    /// "I have a dog called Musti": the thing and its name at once
+    HaveNamed { noun: u32, name: String },
+    /// "we ran ten kilometers": something they did
+    Did(u32),
+    /// "they need a lot of exercise": something said of what they talked of last
+    About(u32),
+    /// "why?": why Raven said what it said
+    Why,
+    /// "what do I do for work?": what they told they are
+    MyRole,
+    /// "what were we talking about?"
+    WhatAbout,
+    /// "should I rest?": a choice that is theirs
+    Advise(u32),
 }
 
 /// The turn's words, lower case, contractions opened; and as written (for names).
@@ -247,6 +261,34 @@ fn clause(net: &Network, w: &[String], o: &[String], cx: &Context) -> Option<Tur
             return Some(Ask(Question::Thanks));
         }
     }
+    // "why?", "why is that?", "how come?": why Raven said it
+    if matches!(s.as_slice(), ["why"] | ["why", "is", "that"] | ["why", "so"] | ["why", "not"] | ["how", "come"] | ["why", "do", "you", "say", "that"]
+        | ["why", "do", "you", "think", "so"] | ["why", "would", "you", "say", "that"]) {
+        return Some(Why);
+    }
+    // "what do I do (for work)?", "what is my job?", "what am I?"
+    if matches!(s.as_slice(), ["what", "do", "i", "do", ..] | ["what", "is", "my", "job" | "work" | "profession" | "occupation"] | ["what", "am", "i"]
+        | ["what", "do", "i", "work", "as"] | ["what", "is", "my", "line", "of", "work"]) {
+        return Some(MyRole);
+    }
+    // "what were we talking about?"
+    if matches!(s.as_slice(), ["what", "were" | "are", "we", "talking", "about"] | ["what", "did", "we", "talk", "about"]
+        | ["what", "was", "i", "saying"] | ["where", "were", "we"]) {
+        return Some(WhatAbout);
+    }
+    // "what do you think about huskies?": what Raven knows of it
+    if s.starts_with(&["what", "do", "you", "think"]) && matches!(s.get(4), Some(&"about") | Some(&"of")) {
+        if let Some(x) = noun_at(net, w, 5, n) {
+            return Some(Ask(Question::Ask { topic: question::Subject::Noun(x), intent: question::Intent::About, more: false }));
+        }
+    }
+    // "should I rest?", "do you think I should rest?": a choice that is theirs
+    let sh = if s.starts_with(&["should", "i"]) { 2 } else if s.starts_with(&["do", "you", "think", "i", "should"]) { 5 } else { 0 };
+    if sh > 0 && sh < n {
+        if let Some(v) = verb_base(net, s[sh]) {
+            return Some(Advise(v));
+        }
+    }
     // a pet's name: "her name was Musti", "he is called Rex"
     if matches!(s[0], "his" | "her" | "its" | "their") && s.get(1) == Some(&"name") && matches!(s.get(2), Some(&"is") | Some(&"was")) && n == 4 {
         return Some(ItsName { name: o[3].clone(), pron: s[0].to_string() });
@@ -326,6 +368,10 @@ fn clause(net: &Network, w: &[String], o: &[String], cx: &Context) -> Option<Tur
                         || noun_at(net, w, k + len, n).is_some()
                         || matches!(after, ["with", ..] | ["again"] | ["today"]);
                     if ok {
+                        // "we ran ten kilometers": done, not lost ("ran away" is the loss)
+                        if len == 1 && matches!(base.as_str(), "run" | "walk" | "swim" | "ride" | "climb" | "hike" | "cycle" | "train" | "play") {
+                            return Some(Did(event));
+                        }
                         return Some(IHappened(event));
                     }
                 }
@@ -376,6 +422,12 @@ fn clause(net: &Network, w: &[String], o: &[String], cx: &Context) -> Option<Tur
     }
     // likes and dislikes: "i (really) like dogs", "i love to swim", "i enjoy swimming"
     let mut k = 1;
+    // "... with him", "... with my dog": who it is done with changes nothing read
+    let n = match s.as_slice() {
+        [.., "with", "him" | "her" | "them" | "it" | "you" | "friends"] if n > 3 => n - 2,
+        _ => n,
+    };
+    let s = &s[..n];
     if s.first() == Some(&"i") {
         while k < n && SOFT.contains(&s[k]) {
             k += 1;
@@ -391,6 +443,12 @@ fn clause(net: &Network, w: &[String], o: &[String], cx: &Context) -> Option<Tur
                     return Some(if good { LikeDoing(v) } else { Dislike(v) });
                 }
             }
+            // "i like to go running"
+            if s.get(k + 1) == Some(&"to") && s.get(k + 2) == Some(&"go") && k + 4 == n {
+                if let Some(v) = verb_any(net, s[k + 3], &[Form::Ing]) {
+                    return Some(if good { LikeDoing(v) } else { Dislike(v) });
+                }
+            }
             if k + 2 == n {
                 if let Some(v) = verb_any(net, s[k + 1], &[Form::Ing]) {
                     return Some(if good { LikeDoing(v) } else { Dislike(v) });
@@ -403,6 +461,12 @@ fn clause(net: &Network, w: &[String], o: &[String], cx: &Context) -> Option<Tur
         // "i have (got) a dog"
         if s.get(1) == Some(&"have") {
             let j = if s.get(2) == Some(&"got") { 3 } else { 2 };
+            // "i have a dog called Musti", "... named Musti"
+            if let Some(c) = (j + 1..n.saturating_sub(1)).find(|&c| matches!(s[c], "called" | "named")) {
+                if let Some(x) = noun_at(net, w, j, c) {
+                    return Some(HaveNamed { noun: x, name: o[c + 1..n].join(" ") });
+                }
+            }
             if let Some(x) = noun_at(net, w, j, n) {
                 return Some(Have(x));
             }
@@ -412,7 +476,10 @@ fn clause(net: &Network, w: &[String], o: &[String], cx: &Context) -> Option<Tur
     if s.first() == Some(&"my") {
         for e in (2..n).rev() {
             let Some(noun) = noun_at(net, w, 1, e) else { continue };
-            let rest = &s[e..];
+            let mut rest = &s[e..];
+            while rest.len() > 1 && !matches!(rest[0], "is" | "was") && SOFT.contains(&rest[rest.len() - 1]) {
+                rest = &rest[..rest.len() - 1];
+            }
             match rest {
                 ["is" | "was", ..] if rest.len() >= 2 => {
                     if let Some(adj) = adj_at(net, w, e + 1, n) {
@@ -454,6 +521,10 @@ fn clause(net: &Network, w: &[String], o: &[String], cx: &Context) -> Option<Tur
         }
         if s[1..] == ["passed", "away"] {
             return verb_base(net, "die").map(|event| Happened { noun, event });
+        }
+        // "they need a lot of exercise", "he loves the snow": said of it, heard, the thread kept
+        if n >= 2 && verb_any(net, s[1], &[Form::Base, Form::ThirdSg, Form::Past]).is_some() {
+            return Some(About(noun));
         }
     }
     // "dogs are cute"

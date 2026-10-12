@@ -115,6 +115,23 @@ fn main() -> Result<()> {
         let net = Network::load(&frozen)?;
         return primogenitus::serve::serve(&net, &cfg, port);
     }
+    if args[0] == "read" {
+        // read "text": what Raven reads from a turn, with no context (one turn per line on stdin if no text)
+        let net = Network::load(&frozen)?;
+        let cx = primogenitus::raven::turn::Context::default();
+        let show = |t: &str| {
+            let (turns, all) = primogenitus::raven::turn::read(&net, t, &cx);
+            println!("{t:<45} -> {turns:?}{}", if all { "" } else { "  (not all read)" });
+        };
+        if args.len() > 1 {
+            show(&args[1..].join(" "));
+        } else {
+            for line in std::io::stdin().lines() {
+                show(&line?);
+            }
+        }
+        return Ok(());
+    }
     if matches!(args[0].as_str(), "chat" | "ask") {
         let net = Network::load(&frozen)?;
         // "ask" is Primo alone (one question, one fact); "chat" talks through Raven

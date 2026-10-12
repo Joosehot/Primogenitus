@@ -271,3 +271,50 @@ fn motors_not_robots() {
     let r = talk("I have plenty of motors");
     assert!(r.contains("motor"), "the thread lost: {r}");
 }
+
+#[test]
+fn a_long_conversation_holds() {
+    // the owner's report (2026-10-12): Primo did not keep longer conversations up.
+    // Twenty turns that build on each other: what is told is kept, "he" is the
+    // dog, a short follow-up goes on with the thread, and it is all recalled.
+    let Some((net, cfg)) = setup() else { return };
+    let mut raven = Raven::new(&net, &cfg).unwrap();
+    let mut talk = |q: &str| {
+        let r = raven.reply(q).text;
+        println!("You: {q}\nPrimogenitus: {r}");
+        r
+    };
+    talk("Hi");
+    talk("My name is Joose");
+    talk("I am a programmer");
+    let r = talk("I have a dog called Musti");
+    assert!(r.contains("Musti"), "the dog's name is taken: {r}");
+    let r = talk("He is a husky");
+    assert!(!r.contains("programmer"), "\"he\" is the dog, not the role: {r}");
+    let r = talk("I like to go running with him");
+    assert!(!r.contains("programmer"), "{r}");
+    let r = talk("We ran ten kilometers yesterday");
+    assert!(!r.contains("sad") && !r.contains("sorry"), "running is no loss: {r}");
+    let r = talk("My knee hurts a bit now");
+    assert!(!r.contains("hurted"), "{r}");
+    let r = talk("Should I rest?");
+    assert!(r.contains("knee") && !r.contains("did not"), "a choice that is theirs, the knee kept in mind: {r}");
+    talk("I think I will rest tomorrow");
+    let r = talk("What do you think about huskies?");
+    assert!(r.to_lowercase().contains("husk") && !r.contains("did not"), "{r}");
+    let r = talk("They need a lot of exercise");
+    assert!(!r.contains("What would you like to talk about"), "the thread is kept: {r}");
+    let r = talk("Tell me more");
+    assert!(!r.contains("Ask me something first"), "more of the thread: {r}");
+    let r = talk("Why?");
+    assert!(r.starts_with("Because") || r.contains("do not know why"), "{r}");
+    assert!(talk("What is my name?").contains("Joose"));
+    let r = talk("What do I do for work?");
+    assert!(r.contains("programmer"), "{r}");
+    let r = talk("What is my dog called?");
+    assert!(r.contains("Musti"), "{r}");
+    let r = talk("What did I tell you about my knee?");
+    assert!(r.contains("knee") && r.contains("hurt") && !r.contains("not told"), "{r}");
+    let r = talk("What were we talking about?");
+    assert!(r.contains("We were talking about"), "{r}");
+}

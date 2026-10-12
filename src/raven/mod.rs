@@ -118,6 +118,7 @@ const SAY_KEYS: &[&str] = &[
     "no_talk", "nice_trait", "heard_bad", "nothing", "creator", "compliment", "insult", "about_me", "empathy_mild",
     "often", "repair", "hard_news", "good_news_self", "yes_low", "heard_low", "who_am_i_more", "recall",
     "recall_none", "recall_none_about", "my_name", "my_name_none", "pet_name_is", "pet_name_was", "pet_name_none",
+    "did", "my_role", "my_role_none", "why_line", "why_told", "why_none", "we_talked", "we_talked_none", "advise", "advise_about",
 ];
 
 pub struct Raven<'a> {
@@ -135,6 +136,8 @@ pub struct Raven<'a> {
     low_since: Option<u64>,
     /// what Raven's last reply was about, for a repair
     last_topic: Option<u32>,
+    /// the lines of the word network behind Raven's last reply (for "why?")
+    last_why: Vec<String>,
     /// the whole conversation (compacted when it grows long)
     pub transcript: Transcript,
     /// the words the model's questions have asked about
@@ -200,6 +203,7 @@ impl<'a> Raven<'a> {
             referent: None,
             low_since: None,
             last_topic: None,
+            last_why: Vec::new(),
             transcript: Transcript::default(),
             asked_about: HashSet::new(),
             thread: None,
@@ -515,12 +519,16 @@ impl<'a> Raven<'a> {
         let brought: Option<u32> = turns.iter().rev().find_map(|t| match t {
             Turn::Like(x) | Turn::Have(x) | Turn::Role(x) => Some(*x),
             Turn::MyIs { noun, .. } | Turn::MyKind { noun, .. } | Turn::Happened { noun, .. } | Turn::Opinion { noun, .. } => Some(*noun),
-            Turn::PetNamed { noun, .. } | Turn::Age { noun, .. } => Some(*noun),
+            Turn::PetNamed { noun, .. } | Turn::Age { noun, .. } | Turn::HaveNamed { noun, .. } | Turn::About(noun) => Some(*noun),
             Turn::Ask(Question::Ask { topic: crate::question::Subject::Noun(n), .. }) => Some(*n),
             _ => None,
         });
         if let Some(n) = brought {
             self.thread = Some((n, self.turn));
+            // "he", "it", "they" are what they brought up last; a role ("a programmer") is themselves
+            if !turns.iter().any(|t| matches!(t, Turn::Role(_))) {
+                self.referent = Some(n);
+            }
         }
         ctx.thread = self.thread.filter(|&(_, t)| self.turn - t <= self.cfg.raven.judges.thread_turns).map(|(n, _)| n);
         let (mut openers, mut bodies, mut questions): (Vec<Part>, Vec<Part>, Vec<Part>) = (Vec::new(), Vec::new(), Vec::new());
@@ -574,6 +582,11 @@ impl<'a> Raven<'a> {
                 }
                 Turn::Ask(q0) => {
                     ctx.asked = true;
+                    // "tell me more": more of the thread, if there is one
+                    let q0 = match (q0, ctx.thread.or(self.referent)) {
+                        (Question::More, Some(x)) => Question::Ask { topic: crate::question::Subject::Noun(x), intent: crate::question::Intent::About, more: true },
+                        (q0, _) => q0,
+                    };
                     // about itself: more than one way to say it, so asking again is not answered with a repeat
                     if q0 == Question::WhoAreYou {
                         bodies.extend(self.parts("who_am_i_more", &b, |p| p.answer = true));
@@ -999,6 +1012,94 @@ impl<'a> Raven<'a> {
                     }
                     _ => openers.extend(self.parts("no", &b, |_| {})),
                 },
+                Turn::HaveNamed { noun, name } => {
+                    self.referent = Some(noun);
+                    self.person.has.push(noun);
+                    self.person.pets.push((noun, name.clone(), "it".to_string()));
+                    ctx.nouns.push(noun);
+                    let s = self.noun_slots(noun, b.clone()).set("pet", name);
+                    openers.extend(self.parts("pet_name", &s, |p| {
+                        p.memory = true;
+                        p.mentions.push(noun);
+                    }));
+                    questions.extend(self.parts(if self.net.node(noun).animate { "q_have_animal" } else { "q_have" }, &s, |p| {
+                        p.question = true;
+                        p.mentions.push(noun);
+                    }));
+                }
+                Turn::Did(v) => {
+                    let s = self.verb_slots(v, b.clone());
+                    openers.extend(self.parts("did", &s, |p| p.mentions.push(v)));
+                    questions.extend(self.parts("q_like_doing", &s, |p| {
+                        p.question = true;
+                        p.mentions.push(v);
+                    }));
+                    ctx.nouns.push(v);
+                }
+                Turn::About(noun) => {
+                    // said of what they talked of: heard, and the thread goes on with it
+                    ctx.nouns.push(noun);
+                    let s = self.noun_slots(noun, b.clone());
+                    openers.extend(self.parts("heard", &s, |p| p.mentions.push(noun)));
+                    bodies.extend(self.fact(noun));
+                }
+                Turn::Why => {
+                    ctx.asked = true;
+                    let line = self.last_why.iter().find(|w| w.contains(" -")).cloned();
+                    let (key, s) = match (line, self.last_topic) {
+                        (Some(l), _) => ("why_line", b.clone().set("line", l)),
+                        (None, Some(tp)) => ("why_told", self.noun_slots(tp, b.clone())),
+                        (None, None) => ("why_none", b.clone()),
+                    };
+                    bodies.extend(self.parts(key, &s, |p| p.answer = true));
+                }
+                Turn::MyRole => {
+                    ctx.asked = true;
+                    let role = self.transcript.facts().into_iter().rev().find_map(|(_, f)| if let Fact::Role(r) = f { Some(r) } else { None });
+                    let (key, s) = match role {
+                        Some(r) => ("my_role", self.noun_slots(r, b.clone())),
+                        None => ("my_role_none", b.clone()),
+                    };
+                    bodies.extend(self.parts(key, &s, |p| {
+                        p.answer = true;
+                        p.memory = role.is_some();
+                    }));
+                }
+                Turn::WhatAbout => {
+                    ctx.asked = true;
+                    let about = self.thread.map(|(n, _)| n).or(self.last_topic);
+                    match about {
+                        Some(x) => {
+                            let s = self.noun_slots(x, b.clone());
+                            let key = if self.person.has.contains(&x) { "we_talked" } else { "we_talked_none" };
+                            bodies.extend(self.parts(key, &s, |p| {
+                                p.answer = true;
+                                p.mentions.push(x);
+                            }));
+                            if self.person.has.contains(&x) {
+                                let mut r = self.recall(Some(x));
+                                r.answer = false;
+                                bodies.push(r);
+                            }
+                        }
+                        None => bodies.push(self.recall(None)),
+                    }
+                }
+                Turn::Advise(v) => {
+                    ctx.asked = true;
+                    // the choice is theirs; what they told of a trouble is kept in mind
+                    let trouble = self.transcript.facts().into_iter().rev().find_map(|(_, f)| match f {
+                        Fact::Happened(n, e) if self.valence(e).unwrap_or(0.0) < 0.0 => Some(n),
+                        Fact::Is(n, a) if self.valence(a).unwrap_or(0.0) < 0.0 => Some(n),
+                        _ => None,
+                    });
+                    let s = self.verb_slots(v, b.clone());
+                    let (key, s) = match trouble {
+                        Some(n) => ("advise_about", self.noun_slots(n, s)),
+                        None => ("advise", s),
+                    };
+                    bodies.extend(self.parts(key, &s, |p| p.answer = true));
+                }
                 Turn::DontKnow => openers.extend(self.parts("dont_know", &b, |_| {})),
                 Turn::Laugh => openers.extend(self.parts("laugh", &b, |_| {})),
                 Turn::Okay => openers.extend(self.parts("okay", &b, |_| {})),
@@ -1069,6 +1170,7 @@ impl<'a> Raven<'a> {
             openers.extend(named);
         }
         let reply = self.search(openers, bodies, questions, &ctx);
+        self.last_why = reply.why.iter().filter(|w| !w.starts_with("raven ") && !w.starts_with("mblm ")).cloned().collect();
         // the whole conversation is remembered: the exchange, and what was read from it
         let facts = self.facts_of(&turns);
         let m = &self.cfg.raven.memory;
@@ -1092,6 +1194,11 @@ impl<'a> Raven<'a> {
                 Turn::Feel(a) => out.push(Fact::Feel(*a, self.valence(*a).unwrap_or(0.0))),
                 Turn::FeelNot(a) => out.push(Fact::Feel(*a, -self.valence(*a).unwrap_or(0.0))),
                 Turn::Have(x) => out.push(Fact::Has(*x)),
+                Turn::HaveNamed { noun, name } => {
+                    out.push(Fact::Has(*noun));
+                    out.push(Fact::PetName(*noun, name.clone()));
+                }
+                Turn::Did(v) => out.push(Fact::TheyHappened(*v)),
                 Turn::Like(x) | Turn::LikeDoing(x) => out.push(Fact::Likes(*x)),
                 Turn::Dislike(x) => out.push(Fact::Dislikes(*x)),
                 Turn::MyIs { noun, adj } => out.push(Fact::Is(*noun, *adj)),
